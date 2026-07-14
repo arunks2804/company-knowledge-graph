@@ -1,0 +1,19 @@
+{
+  "source": "my_data_warehouse",
+  "tables": {
+    "inventory_events": [
+      { "column": "event_time",    "data_type": "timestamp" },
+      { "column": "sku_code",      "data_type": "varchar" },
+      { "column": "warehouse_id",  "data_type": "varchar" },
+      { "column": "qty_delta",     "data_type": "integer" },
+      { "column": "event_type",    "data_type": "varchar" }
+    ],
+    "shipments": [
+      { "column": "shipment_id",   "data_type": "varchar" },
+      { "column": "product_sku",   "data_type": "varchar" },
+      { "column": "origin",        "data_type": "varchar" },
+      { "column": "destination",   "data_type": "varchar" },
+      { "column": "shipped_at",    "data_type": "timestamp" }
+    ]
+  }
+}

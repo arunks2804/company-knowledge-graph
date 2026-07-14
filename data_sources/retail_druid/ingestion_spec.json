@@ -1,0 +1,50 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "dataSchema": {
+      "dataSource": "inventory_events",
+      "dimensionsSpec": {
+        "dimensions": [
+          { "name": "sku_code",       "type": "string" },
+          { "name": "event_type",     "type": "string" },
+          { "name": "warehouse_code", "type": "string" },
+          { "name": "region",         "type": "string" },
+          { "name": "triggered_by",   "type": "string" }
+        ]
+      },
+      "metricsSpec": [
+        { "name": "qty_delta",        "type": "longSum",   "fieldName": "qty_delta" },
+        { "name": "stock_level",      "type": "longLast",  "fieldName": "stock_level" },
+        { "name": "unit_cost",        "type": "doubleSum",  "fieldName": "unit_cost" }
+      ],
+      "timestampSpec": {
+        "column": "event_ts",
+        "format": "iso"
+      },
+      "granularitySpec": {
+        "segmentGranularity": "day",
+        "queryGranularity": "hour"
+      }
+    },
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "inline",
+        "data": "event_ts,sku_code,event_type,warehouse_code,region,qty_delta,stock_level,unit_cost,triggered_by\n2024-01-10T08:00:00Z,LP-4471,restock,WH-WEST,West,20,30,980.00,auto_replenish\n2024-01-12T09:30:00Z,PH-8832,restock,WH-WEST,West,25,50,620.00,auto_replenish\n2024-01-15T14:00:00Z,LP-4471,sale,WH-EAST,East,-1,12,980.00,order_ORD-20240115\n2024-01-18T11:00:00Z,TB-2291,restock,WH-NORTH,North,15,31,410.00,auto_replenish\n2024-01-20T16:30:00Z,TB-2291,sale,WH-NORTH,North,-2,29,410.00,order_ORD-20240120\n2024-01-22T08:00:00Z,LP-4471,flag_low_stock,WH-EAST,East,0,11,980.00,threshold_alert\n2024-01-25T10:00:00Z,MN-5543,restock,WH-SOUTH,South,5,15,310.00,manual\n2024-02-01T09:00:00Z,KB-1190,restock,WH-WEST,West,20,60,95.00,auto_replenish\n2024-02-05T14:00:00Z,LP-4471,failure_report,WH-EAST,East,0,11,980.00,maintenance_system\n2024-02-10T15:00:00Z,MN-5543,sale,WH-SOUTH,South,-1,14,310.00,order_ORD-20240210"
+      },
+      "inputFormat": {
+        "type": "csv",
+        "findColumnsFromHeader": true
+      }
+    }
+  },
+  "_seed_data_description": {
+    "note": "sku_code here maps to product_id in Postgres — same values (LP-4471, PH-8832, etc.) deliberately named differently to exercise entity resolution. warehouse_code maps to warehouse_id in Postgres inventory table.",
+    "event_types": {
+      "restock": "Inventory replenishment — qty_delta is positive",
+      "sale": "Units sold and removed from stock — qty_delta is negative",
+      "flag_low_stock": "Automated alert when stock drops below threshold — qty_delta is 0",
+      "failure_report": "A unit was reported as failed by the maintenance system — qty_delta is 0"
+    }
+  }
+}

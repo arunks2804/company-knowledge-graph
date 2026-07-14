@@ -1,0 +1,28 @@
+MAINTENANCE INCIDENT REPORT
+Report ID: MNT-2024-001
+Date: 2024-02-05
+Technician: J. Ferreira
+Priority: High
+
+SUMMARY
+A failure was reported on one of the Laptop Pro units held at the East warehouse. The unit in question carries SKU LP-4471 in our inventory system. The failure was first detected by the automated stock monitoring system, which emitted a failure_report event at 14:03 on 2024-02-05.
+
+DESCRIPTION OF FAILURE
+The customer who received the unit (order ORD-20240115, customer Bob Okafor, East region) reported that the device failed to power on after approximately three weeks of use. The unit was collected and returned to warehouse WH-EAST for inspection.
+
+On inspection, the technician found a failed power management IC on the main board. This is consistent with a batch fault identified in units from supplier SUP-001 manufactured in Q4 2023.
+
+AFFECTED UNITS
+- Product: Laptop Pro 14 (SKU LP-4471)
+- Warehouse: WH-EAST
+- Units affected this report: 1
+- Estimated additional units at risk: up to 4 (all LP-4471 stock at WH-EAST from the same supplier batch)
+
+ACTIONS TAKEN
+1. The failed unit was quarantined and logged under incident MNT-2024-001.
+2. A hold was placed on remaining LP-4471 stock at WH-EAST pending supplier review.
+3. Supplier SUP-001 was notified and a replacement batch requested.
+4. Customer Bob Okafor was contacted for replacement or refund under warranty.
+
+RECOMMENDATIONS
+Conduct a power-on test of all Laptop Pro 14 units (LP-4471) at WH-EAST before releasing to fulfilment. Consider expanding the hold to WH-WEST stock from the same batch if supplier confirms the fault extends beyond Q4 2023 production.

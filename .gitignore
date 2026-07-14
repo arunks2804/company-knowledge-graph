@@ -1,0 +1,23 @@
+# Environment
+.env
+
+# Auth store — contains password hashes and API key hashes
+backend/config/auth.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Neo4j data (if running locally)
+neo4j/data/
+neo4j/logs/
+
+# OS
+.DS_Store

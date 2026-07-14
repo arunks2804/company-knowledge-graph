@@ -1,0 +1,29 @@
+id: example
+name: Example Corp
+apps:
+  - id: retail
+    name: Retail Platform
+  - id: logistics
+    name: Logistics System
+
+sources:
+  live_connectors:
+    # set enabled: true only for connectors you have credentials for
+    - name: postgres
+      enabled: true
+    - name: timescaledb
+      enabled: false
+    - name: druid
+      enabled: false
+    - name: dynamodb
+      enabled: true
+    - name: iceberg
+      enabled: false
+
+  schema_folders:
+    - path: schemas/
+      description: DDL exports and schema files
+
+  document_folders:
+    - path: data_sources/documents/
+      description: Maintenance reports and internal docs

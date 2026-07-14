@@ -1,0 +1,29 @@
+MAINTENANCE INCIDENT REPORT
+Report ID: MNT-2024-002
+Date: 2024-02-12
+Technician: A. Singh
+Priority: Medium
+
+SUMMARY
+Routine inspection of Monitor HD units at the South warehouse following a customer complaint about display flickering. Units affected are the 27-inch Monitor HD model, product code MN-5543.
+
+DESCRIPTION
+Three units of the Monitor HD 27 (MN-5543) at warehouse WH-SOUTH were found to exhibit intermittent backlight flickering under sustained load. The issue was reproduced in two of the three units under test. The third unit passed all tests.
+
+Customer Elena Petrova (premium tier, West region) submitted the original complaint after receiving her order (ORD-20240210, which was subsequently cancelled before shipment). No units had shipped at the time of this report.
+
+ROOT CAUSE
+The backlight driver firmware version 2.1.3 shipped with the current stock batch has a known issue under high-brightness settings. The manufacturer has released firmware 2.1.5 which resolves the problem.
+
+AFFECTED UNITS
+- Product: Monitor HD 27 (product code MN-5543, also referred to internally as "the 27-inch unit" or "monitor unit MN-5543")
+- Warehouse: WH-SOUTH
+- Units affected: 2 of 3 tested; remaining 12 untested units quarantined
+
+ACTIONS TAKEN
+1. Firmware update applied to the 2 confirmed affected units — both passed re-test.
+2. Remaining 12 units at WH-SOUTH scheduled for firmware update before release.
+3. Order ORD-20240210 cancellation confirmed — no units shipped to customer.
+
+NEXT STEPS
+Apply firmware 2.1.5 to all Monitor HD 27 (MN-5543) stock across all warehouses as a preventative measure.

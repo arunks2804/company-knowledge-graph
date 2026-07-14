@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+bcrypt
+httpx
+neo4j
+psycopg2-binary
+boto3
+pyyaml
+python-dotenv
+pydantic
+langsmith
+pdfplumber
+pyiceberg[s3fs,pyarrow]
+psycopg2-binary

@@ -1,0 +1,124 @@
+# Core seed ontology — loaded before any source ingestion
+# The LLM extends this; it does not replace it.
+# Keep this minimal — only concepts that are truly cross-domain
+
+classes:
+  - name: Entity
+    description: "Abstract base. Every resolvable real-world thing is an Entity."
+    abstract: true
+    properties: []
+
+  - name: Product
+    description: "A physical item that can be manufactured, stocked, ordered, and serviced."
+    parent: Entity
+    properties:
+      - name: id
+        type: string
+        description: "Canonical product identifier (company-wide). Known as product_id, sku_code, or product_sku depending on the system."
+      - name: name
+        type: string
+        description: "Human-readable product name."
+      - name: category
+        type: string
+        description: "Broad product category (Laptops, Phones, Tablets, Monitors, Peripherals)."
+
+  - name: Customer
+    description: "A person or organisation that places orders."
+    parent: Entity
+    properties:
+      - name: id
+        type: string
+        description: "Canonical customer identifier."
+      - name: name
+        type: string
+      - name: region
+        type: string
+        description: "Geographic sales region (North, South, East, West)."
+      - name: tier
+        type: string
+        description: "Account tier: standard, premium, enterprise."
+
+  - name: Order
+    description: "A purchase transaction from a customer."
+    parent: Entity
+    properties:
+      - name: id
+        type: string
+      - name: status
+        type: string
+        description: "Lifecycle state: pending, shipped, delivered, cancelled."
+      - name: date
+        type: date
+
+  - name: Warehouse
+    description: "A physical storage location holding product inventory."
+    parent: Entity
+    properties:
+      - name: id
+        type: string
+        description: "Warehouse identifier (WH-WEST, WH-EAST, etc.)."
+      - name: region
+        type: string
+
+  - name: Supplier
+    description: "An external supplier that provides products."
+    parent: Entity
+    properties:
+      - name: id
+        type: string
+
+  - name: Shipment
+    description: "A physical delivery of an order from warehouse to customer."
+    parent: Entity
+    properties:
+      - name: id
+        type: string
+      - name: status
+        type: string
+
+  - name: MaintenanceIncident
+    description: "A reported fault, failure, or quality issue with a product unit."
+    parent: Entity
+    properties:
+      - name: id
+        type: string
+      - name: date
+        type: date
+      - name: priority
+        type: string
+
+relationships:
+  - from: Customer
+    to: Order
+    type: PLACED
+    description: "A customer placed an order."
+
+  - from: Order
+    to: Product
+    type: CONTAINS
+    description: "An order contains one or more products."
+
+  - from: Order
+    to: Shipment
+    type: FULFILLED_BY
+    description: "An order is fulfilled by a shipment."
+
+  - from: Product
+    to: Warehouse
+    type: STOCKED_AT
+    description: "A product is stocked at a warehouse."
+
+  - from: Product
+    to: Supplier
+    type: SUPPLIED_BY
+    description: "A product is sourced from a supplier."
+
+  - from: MaintenanceIncident
+    to: Product
+    type: AFFECTS
+    description: "A maintenance incident affects a product."
+
+  - from: MaintenanceIncident
+    to: Warehouse
+    type: LOCATED_AT
+    description: "The incident occurred at a warehouse."

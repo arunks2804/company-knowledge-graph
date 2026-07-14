@@ -1,0 +1,36 @@
+SUPPLIER QUALITY REVIEW
+Report ID: SQR-2024-001
+Date: 2024-02-18
+Author: Quality Assurance Team
+Distribution: Procurement, Warehouse Operations, Customer Success
+
+SUBJECT: Batch quality issue — Supplier SUP-001, Q4 2023 production run
+
+BACKGROUND
+Following incident MNT-2024-001 (power management failure in the laptop unit, SKU LP-4471), the QA team initiated a broader review of all products sourced from supplier SUP-001 in the Q4 2023 production batch.
+
+SUP-001 supplies two product lines: Laptop Pro 14 (LP-4471) and Tablet Plus (TB-2291).
+
+FINDINGS
+
+Laptop Pro 14 (LP-4471):
+The power management IC failure identified in MNT-2024-001 is confirmed as a batch defect. Testing of the WH-EAST stock (11 units remaining) identified 3 additional units with the same fault. All 4 affected units have been quarantined. The 30 units at WH-WEST are from a Q1 2024 production run and are not affected.
+
+Tablet Plus (TB-2291):
+29 units at WH-NORTH were tested. No faults found. The TB-2291 units use a different power management IC not affected by the batch defect. All Tablet Plus stock is cleared for fulfilment.
+
+IMPACT SUMMARY
+| Product       | SKU     | Warehouse | Total Stock | Affected | Cleared |
+|---------------|---------|-----------|-------------|----------|---------|
+| Laptop Pro 14 | LP-4471 | WH-EAST   | 11          | 4        | 7       |
+| Laptop Pro 14 | LP-4471 | WH-WEST   | 30          | 0        | 30      |
+| Tablet Plus   | TB-2291 | WH-NORTH  | 29          | 0        | 29      |
+
+ACTIONS
+1. 4 defective LP-4471 units at WH-EAST are being returned to SUP-001 for credit.
+2. 7 cleared LP-4471 units at WH-EAST are released for fulfilment.
+3. SUP-001 has been placed on enhanced incoming inspection for the next two quarters.
+4. Customer Bob Okafor (order ORD-20240115) has been issued a replacement from cleared WH-WEST stock.
+
+RECOMMENDATIONS
+Update the product risk register for LP-4471 to flag the Q4 2023 batch. Any future orders from enterprise customer Carol Vance (CUST-003) for Laptop Pro 14 units should be fulfilled from WH-WEST (Q1 2024 stock) until the Q4 2023 batch is fully cleared.

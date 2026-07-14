@@ -1,0 +1,21 @@
+provider: ollama          # ollama | anthropic | openai
+model: llama3.1           # ollama: llama3.1 | anthropic: claude-sonnet-4-6 | openai: gpt-4o
+embedding_model: nomic-embed-text   # ollama only; anthropic/openai use their own
+
+ollama_base_url: http://localhost:11434
+
+# Confidence thresholds for entity resolution
+confidence:
+  auto_commit: 0.85       # above this → committed to graph automatically
+  needs_review: 0.50      # between this and auto_commit → committed but flagged
+  reject: 0.50            # below this → not committed, surfaced as unresolved
+
+# Document chunking
+chunking:
+  chunk_size: 800         # characters
+  overlap: 150            # characters
+
+# Neo4j vector index
+vector:
+  dimensions: 768         # nomic-embed-text = 768; change if using a different model
+  similarity: cosine
