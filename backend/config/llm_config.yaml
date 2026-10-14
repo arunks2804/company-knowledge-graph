@@ -19,3 +19,7 @@ chunking:
 vector:
   dimensions: 768         # nomic-embed-text = 768; change if using a different model
   similarity: cosine
+
+# Ingestion pipeline
+ingest:
+  review_gate: false      # true → pause before writing to Neo4j when entities need review (resume via POST /ingest/review)

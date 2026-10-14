@@ -134,6 +134,16 @@ curl -H "Authorization: Bearer sk_..." -H "X-Org-Id: example" http://localhost:8
 org, each org's generated ontology is written to `orgs/<org_id>/ontology.yaml`, and ingestion
 only accepts connectors and files enabled in that org's `config.yaml`.
 
+**Ingestion pipeline:** `POST /ingest` runs a LangGraph `StateGraph`
+(`backend/app/pipeline/ingest_graph.py`): extract → read_documents → generate_ontology →
+resolve_entities → build_relationships → [review_gate] → sync_graph → embed_and_link_documents.
+`/ingest/status` reports the current node. By default everything is committed (needs_review
+entities are written but flagged). Set `ingest.review_gate: true` in `backend/config/llm_config.yaml`
+to pause before writing when entities need review: status becomes `awaiting_review`,
+`GET /ingest/review` lists them, and `POST /ingest/review` with
+`{"decisions": {"<canonical_id>": "approve" | "reject"}}` resumes the run. Paused runs are held
+in memory, so a backend restart discards them.
+
 ---
 
 ## API endpoints
@@ -155,6 +165,7 @@ only accepts connectors and files enabled in that org's `config.yaml`.
 | GET | `/ontology/graph` | Ontology as Cytoscape nodes/edges |
 | GET | `/entities` | List graph entities |
 | GET | `/ingest/status` | Poll ingestion progress |
+| GET | `/ingest/review` | Entities held at the review gate |
 | GET | `/graph/summary` | LLM executive summary |
 | POST | `/retrieve/investigate` | RAG-style Q&A |
 | POST | `/retrieve/search/entities` | Entity name search |
@@ -167,6 +178,7 @@ only accepts connectors and files enabled in that org's `config.yaml`.
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/ingest` | Trigger ingestion pipeline |
+| POST | `/ingest/review` | Approve/reject held entities and resume ingestion |
 | PATCH | `/entities/{id}` | Update entity label, class, or status |
 | DELETE | `/entities/{id}` | Remove entity |
 | POST | `/entities/{id}/approve` | Approve a needs_review entity |

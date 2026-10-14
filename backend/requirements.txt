@@ -12,3 +12,4 @@ langsmith
 pdfplumber
 pyiceberg[s3fs,pyarrow]
 psycopg2-binary
+langgraph

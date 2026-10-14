@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 
@@ -17,20 +18,9 @@ from pydantic import BaseModel
 from .auth import router as auth_router, require_read_only, require_read_write
 from .auth.models import Principal
 from .auth.store import create_user, has_users
-from .connectors.postgres_live import extract_all as pg_extract
-from .connectors.druid_live import extract_all as druid_extract
-from .connectors.dynamo_sample import extract_all as dynamo_extract
-from .connectors.iceberg_catalog import extract_all as iceberg_extract
-from .connectors.timescale_live import extract_all as timescale_extract
-from .connectors.schema_files import extract_all as schema_files_extract
-from .documents.chunker import chunk_text
-from .documents.doc_extractor import extract_documents, READERS
-from .documents.embedder import embed_and_store
-from .ontology.generator import generate_ontology, load_seed_ontology
-from .ontology.resolver import resolve_entities
+from .ontology.generator import load_seed_ontology
 from .ontology.taxonomy import describe as describe_ontology, rel_name
-from .graph.neo4j_sync import get_driver, ensure_indexes, sync_entities, link_entities_to_chunks
-from .graph.relationships import build_relationships
+from .graph.neo4j_sync import get_driver
 from .graph.nl_describe import describe_graph_summary
 from .graph.editor import (
     update_entity, remove_entity, approve_entity, reject_entity,
@@ -44,6 +34,10 @@ from .retrieval.api import router as retrieval_router
 from .orgs.api import router as orgs_router
 from .orgs.config import get_org_sources
 from .orgs.scope import require_org
+from .pipeline.ingest_graph import (
+    EXTRACTORS as _EXTRACTORS, ingest_status as _ingest_status,
+    run_ingest, pending_review, resume_ingest,
+)
 
 app = FastAPI(title="Company Knowledge Graph", version="1.0.0")
 
@@ -213,10 +207,6 @@ class IngestRequest(BaseModel):
     doc_file_paths: list[str] = []
 
 
-# per-org ingest status: {org_id: {"state": ..., "detail": ...}}
-_ingest_status: dict[str, dict] = {}
-
-
 def _validate_path(user_path: str, allowed: set[str]) -> Path:
     """Reject any path that is not one of the files configured for this org."""
     p = Path(user_path).resolve()
@@ -225,81 +215,9 @@ def _validate_path(user_path: str, allowed: set[str]) -> Path:
     return p
 
 
-_EXTRACTORS = {
-    "postgres": pg_extract,
-    "druid": druid_extract,
-    "dynamodb": dynamo_extract,
-    "iceberg": iceberg_extract,
-    "timescaledb": timescale_extract,
-}
-
-
-def _read_documents(doc_file_paths: list[str]) -> list[dict]:
-    docs = []
-    for fp in doc_file_paths:
-        p = Path(fp)
-        reader = READERS.get(p.suffix.lower())
-        if reader:
-            text = reader(p)
-            if text.strip():
-                docs.append({"path": str(p), "name": p.name, "text": text})
-    return docs
-
-
 def _run_ingest(org_id: str, sources: list[str], schema_file_paths: list[str], doc_file_paths: list[str]) -> None:
-    status = {"state": "running", "detail": "connecting to graph"}
-    _ingest_status[org_id] = status
-    try:
-        driver = get_driver()
-        ensure_indexes(driver)
-
-        schema_data = []
-        for name in sources:
-            status["detail"] = f"extracting {name}"
-            try:
-                schema_data.append(_EXTRACTORS[name]())
-            except Exception as e:
-                schema_data.append({"source": name, "error": str(e)})
-
-        if schema_file_paths:
-            status["detail"] = f"reading {len(schema_file_paths)} schema file(s)"
-            for fp in schema_file_paths:
-                try:
-                    results = schema_files_extract(schemas_dir=Path(fp).parent)
-                    schema_data.extend([r for r in results if r.get("file") == str(Path(fp).resolve())])
-                except Exception as e:
-                    schema_data.append({"source": f"schema_file:{fp}", "error": str(e)})
-
-        # documents are read up front so their mentions take part in entity resolution
-        status["detail"] = f"reading {len(doc_file_paths)} document(s)"
-        raw_docs = _read_documents(doc_file_paths)
-
-        status["detail"] = "generating ontology"
-        ontology = generate_ontology(schema_data, org_id)
-
-        status["detail"] = "resolving entities across sources and documents"
-        entities, proposed_rels = resolve_entities(schema_data, ontology, raw_docs)
-        relationships = build_relationships(entities, schema_data, ontology, proposed_rels)
-
-        status["detail"] = "writing entities and relationships"
-        counts = sync_entities(driver, org_id, entities, relationships)
-
-        for i, doc in enumerate(raw_docs, 1):
-            status["detail"] = f"embedding document {i}/{len(raw_docs)}"
-            embed_and_store(driver, org_id, doc, chunk_text(doc["text"]))
-            link_entities_to_chunks(driver, org_id, doc["path"])
-
-        driver.close()
-        _ingest_status[org_id] = {
-            "state": "done",
-            "detail": "complete",
-            "entity_counts": counts,
-            "entities": len(entities),
-            "relationships": len(relationships),
-            "documents": len(raw_docs),
-        }
-    except Exception as exc:
-        _ingest_status[org_id] = {"state": "error", "detail": str(exc)}
+    """Runs the LangGraph ingestion pipeline (app/pipeline/ingest_graph.py)."""
+    run_ingest(org_id, sources, schema_file_paths, doc_file_paths)
 
 
 @app.post("/ingest")
@@ -321,6 +239,29 @@ def ingest(req: IngestRequest, background_tasks: BackgroundTasks,
 
     background_tasks.add_task(_run_ingest, org_id, req.sources, schema_paths, doc_paths)
     return {"status": "started"}
+
+
+class ReviewDecisionsRequest(BaseModel):
+    decisions: dict[str, Literal["approve", "reject"]] = {}
+
+
+@app.get("/ingest/review")
+def ingest_review(_: Principal = Depends(require_read_only), org_id: str = Depends(require_org)):
+    """Entities held at the review gate of a paused ingest (only when ingest.review_gate is on)."""
+    pending = pending_review(org_id)
+    if pending is None:
+        raise HTTPException(status_code=404, detail="No ingest awaiting review")
+    return {"entities": pending}
+
+
+@app.post("/ingest/review")
+def ingest_review_submit(req: ReviewDecisionsRequest, background_tasks: BackgroundTasks,
+                         _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    if _ingest_status.get(org_id, {}).get("state") != "awaiting_review" or pending_review(org_id) is None:
+        raise HTTPException(status_code=409, detail="No ingest awaiting review")
+    _ingest_status[org_id] = {"state": "running", "detail": "resuming after review"}
+    background_tasks.add_task(resume_ingest, org_id, req.decisions)
+    return {"status": "resumed"}
 
 
 # ── entity editing (read-write) ────────────────────────────────────────────────
