@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 
-const s: Record<string, React.CSSProperties> = {
+const s = {
   wrap: { display: 'flex', flexDirection: 'column', gap: 16 },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   btn: {
@@ -35,7 +35,7 @@ const s: Record<string, React.CSSProperties> = {
     width: '90%', border: '1px solid var(--border)', maxHeight: '80vh', overflowY: 'auto',
   },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 },
-}
+} satisfies Record<string, React.CSSProperties | ((...args: never[]) => React.CSSProperties)>
 
 type Entity = Record<string, unknown>
 

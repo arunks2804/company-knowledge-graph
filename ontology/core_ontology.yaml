@@ -90,35 +90,35 @@ classes:
 relationships:
   - from: Customer
     to: Order
-    type: PLACED
+    name: PLACED
     description: "A customer placed an order."
 
   - from: Order
     to: Product
-    type: CONTAINS
+    name: CONTAINS
     description: "An order contains one or more products."
 
   - from: Order
     to: Shipment
-    type: FULFILLED_BY
+    name: FULFILLED_BY
     description: "An order is fulfilled by a shipment."
 
   - from: Product
     to: Warehouse
-    type: STOCKED_AT
+    name: STOCKED_AT
     description: "A product is stocked at a warehouse."
 
   - from: Product
     to: Supplier
-    type: SUPPLIED_BY
+    name: SUPPLIED_BY
     description: "A product is sourced from a supplier."
 
   - from: MaintenanceIncident
     to: Product
-    type: AFFECTS
+    name: AFFECTS
     description: "A maintenance incident affects a product."
 
   - from: MaintenanceIncident
     to: Warehouse
-    type: LOCATED_AT
+    name: LOCATED_AT
     description: "The incident occurred at a warehouse."

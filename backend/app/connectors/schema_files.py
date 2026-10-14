@@ -80,19 +80,19 @@ def extract_all(schemas_dir: str | Path | None = None) -> list[dict]:
                 tables = _parse_sql(text, fp.name)
                 source_name = fp.stem
                 if tables:
-                    results.append({"source": f"schema_file:{source_name}", "schema": tables, "samples": {}})
+                    results.append({"source": f"schema_file:{source_name}", "schema": tables, "samples": {}, "file": str(fp.resolve())})
 
             elif suffix == ".json":
                 source_name, tables = _parse_json(text)
                 if tables:
-                    results.append({"source": f"schema_file:{source_name}", "schema": tables, "samples": {}})
+                    results.append({"source": f"schema_file:{source_name}", "schema": tables, "samples": {}, "file": str(fp.resolve())})
 
             elif suffix in (".yaml", ".yml"):
                 source_name, tables = _parse_yaml(text)
                 if tables:
-                    results.append({"source": f"schema_file:{source_name}", "schema": tables, "samples": {}})
+                    results.append({"source": f"schema_file:{source_name}", "schema": tables, "samples": {}, "file": str(fp.resolve())})
 
         except Exception as exc:
-            results.append({"source": f"schema_file:{fp.name}", "error": str(exc), "schema": {}, "samples": {}})
+            results.append({"source": f"schema_file:{fp.name}", "error": str(exc), "schema": {}, "samples": {}, "file": str(fp.resolve())})
 
     return results

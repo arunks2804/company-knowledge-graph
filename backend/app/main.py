@@ -28,8 +28,9 @@ from .documents.doc_extractor import extract_documents, READERS
 from .documents.embedder import embed_and_store
 from .ontology.generator import generate_ontology, load_seed_ontology
 from .ontology.resolver import resolve_entities
-from .ontology.taxonomy import describe as describe_ontology
-from .graph.neo4j_sync import get_driver, ensure_indexes, sync_entities, link_entity_to_chunks
+from .ontology.taxonomy import describe as describe_ontology, rel_name
+from .graph.neo4j_sync import get_driver, ensure_indexes, sync_entities, link_entities_to_chunks
+from .graph.relationships import build_relationships
 from .graph.nl_describe import describe_graph_summary
 from .graph.editor import (
     update_entity, remove_entity, approve_entity, reject_entity,
@@ -41,6 +42,8 @@ from .ontology.editor import (
 )
 from .retrieval.api import router as retrieval_router
 from .orgs.api import router as orgs_router
+from .orgs.config import get_org_sources
+from .orgs.scope import require_org
 
 app = FastAPI(title="Company Knowledge Graph", version="1.0.0")
 
@@ -131,18 +134,18 @@ def list_sources(_: Principal = Depends(require_read_only)):
 
 
 @app.get("/ontology")
-def ontology(_: Principal = Depends(require_read_only)):
-    return load_seed_ontology()
+def ontology(_: Principal = Depends(require_read_only), org_id: str = Depends(require_org)):
+    return load_seed_ontology(org_id)
 
 
 @app.get("/ontology/describe")
-def ontology_describe(_: Principal = Depends(require_read_only)):
-    return {"description": describe_ontology()}
+def ontology_describe(_: Principal = Depends(require_read_only), org_id: str = Depends(require_org)):
+    return {"description": describe_ontology(org_id)}
 
 
 @app.get("/ontology/graph")
-def ontology_graph(_: Principal = Depends(require_read_only)):
-    data = load_seed_ontology()
+def ontology_graph(_: Principal = Depends(require_read_only), org_id: str = Depends(require_org)):
+    data = load_seed_ontology(org_id)
     nodes = [
         {
             "data": {
@@ -157,10 +160,10 @@ def ontology_graph(_: Principal = Depends(require_read_only)):
     edges = [
         {
             "data": {
-                "id": f"{r['name']}_{i}",
+                "id": f"{rel_name(r)}_{i}",
                 "source": r.get("from", ""),
                 "target": r.get("to", ""),
-                "label": r["name"],
+                "label": rel_name(r),
                 "description": r.get("description", ""),
             }
         }
@@ -171,31 +174,32 @@ def ontology_graph(_: Principal = Depends(require_read_only)):
 
 
 @app.get("/ingest/status")
-def ingest_status(_: Principal = Depends(require_read_only)):
-    return _ingest_status
+def ingest_status(_: Principal = Depends(require_read_only), org_id: str = Depends(require_org)):
+    return _ingest_status.get(org_id, {"state": "idle", "detail": ""})
 
 
 @app.get("/graph/summary")
-def graph_summary(_: Principal = Depends(require_read_only)):
+def graph_summary(_: Principal = Depends(require_read_only), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return {"summary": describe_graph_summary(driver)}
+        return {"summary": describe_graph_summary(driver, org_id)}
     finally:
         driver.close()
 
 
 @app.get("/entities")
-def list_entities(status: str | None = None, limit: int = 50, _: Principal = Depends(require_read_only)):
+def list_entities(status: str | None = None, limit: int = 50,
+                  _: Principal = Depends(require_read_only), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
         with driver.session() as session:
             if status:
                 result = session.run(
-                    "MATCH (e:Entity {status: $s}) RETURN e LIMIT $l",
-                    s=status, l=limit,
+                    "MATCH (e:Entity {org_id: $org, status: $s}) RETURN e LIMIT $l",
+                    org=org_id, s=status, l=limit,
                 )
             else:
-                result = session.run("MATCH (e:Entity) RETURN e LIMIT $l", l=limit)
+                result = session.run("MATCH (e:Entity {org_id: $org}) RETURN e LIMIT $l", org=org_id, l=limit)
             return [dict(r["e"]) for r in result]
     finally:
         driver.close()
@@ -209,117 +213,113 @@ class IngestRequest(BaseModel):
     doc_file_paths: list[str] = []
 
 
-_ingest_status: dict = {"state": "idle", "detail": ""}
+# per-org ingest status: {org_id: {"state": ..., "detail": ...}}
+_ingest_status: dict[str, dict] = {}
 
 
-def _validate_path(user_path: str, base: Path) -> Path:
-    """Reject any path that escapes the allowed base directory."""
+def _validate_path(user_path: str, allowed: set[str]) -> Path:
+    """Reject any path that is not one of the files configured for this org."""
     p = Path(user_path).resolve()
-    if not str(p).startswith(str(base.resolve())):
-        raise HTTPException(status_code=400, detail=f"Invalid file path: {user_path}")
+    if str(p) not in allowed:
+        raise HTTPException(status_code=400, detail=f"Invalid file path for this organisation: {user_path}")
     return p
 
 
-def _run_ingest(sources: list[str], schema_file_paths: list[str], doc_file_paths: list[str]) -> None:
-    global _ingest_status
+_EXTRACTORS = {
+    "postgres": pg_extract,
+    "druid": druid_extract,
+    "dynamodb": dynamo_extract,
+    "iceberg": iceberg_extract,
+    "timescaledb": timescale_extract,
+}
+
+
+def _read_documents(doc_file_paths: list[str]) -> list[dict]:
+    docs = []
+    for fp in doc_file_paths:
+        p = Path(fp)
+        reader = READERS.get(p.suffix.lower())
+        if reader:
+            text = reader(p)
+            if text.strip():
+                docs.append({"path": str(p), "name": p.name, "text": text})
+    return docs
+
+
+def _run_ingest(org_id: str, sources: list[str], schema_file_paths: list[str], doc_file_paths: list[str]) -> None:
+    status = {"state": "running", "detail": "connecting to graph"}
+    _ingest_status[org_id] = status
     try:
-        _ingest_status = {"state": "running", "detail": "connecting to graph"}
         driver = get_driver()
         ensure_indexes(driver)
 
         schema_data = []
-
-        if "postgres" in sources:
-            _ingest_status["detail"] = "extracting postgres"
+        for name in sources:
+            status["detail"] = f"extracting {name}"
             try:
-                schema_data.append(pg_extract())
+                schema_data.append(_EXTRACTORS[name]())
             except Exception as e:
-                schema_data.append({"source": "postgres", "error": str(e)})
-
-        if "druid" in sources:
-            _ingest_status["detail"] = "extracting druid"
-            try:
-                schema_data.append(druid_extract())
-            except Exception as e:
-                schema_data.append({"source": "druid", "error": str(e)})
-
-        if "dynamodb" in sources:
-            _ingest_status["detail"] = "extracting dynamodb"
-            try:
-                schema_data.append(dynamo_extract())
-            except Exception as e:
-                schema_data.append({"source": "dynamodb", "error": str(e)})
-
-        if "iceberg" in sources:
-            _ingest_status["detail"] = "extracting iceberg"
-            try:
-                schema_data.append(iceberg_extract())
-            except Exception as e:
-                schema_data.append({"source": "iceberg", "error": str(e)})
-
-        if "timescaledb" in sources:
-            _ingest_status["detail"] = "extracting timescaledb"
-            try:
-                schema_data.append(timescale_extract())
-            except Exception as e:
-                schema_data.append({"source": "timescaledb", "error": str(e)})
+                schema_data.append({"source": name, "error": str(e)})
 
         if schema_file_paths:
-            _ingest_status["detail"] = f"reading {len(schema_file_paths)} schema file(s)"
+            status["detail"] = f"reading {len(schema_file_paths)} schema file(s)"
             for fp in schema_file_paths:
                 try:
                     results = schema_files_extract(schemas_dir=Path(fp).parent)
-                    schema_data.extend([r for r in results if Path(fp).name in r.get("source", "")])
+                    schema_data.extend([r for r in results if r.get("file") == str(Path(fp).resolve())])
                 except Exception as e:
                     schema_data.append({"source": f"schema_file:{fp}", "error": str(e)})
 
-        _ingest_status["detail"] = "generating ontology"
-        ontology = generate_ontology(schema_data)
+        # documents are read up front so their mentions take part in entity resolution
+        status["detail"] = f"reading {len(doc_file_paths)} document(s)"
+        raw_docs = _read_documents(doc_file_paths)
 
-        _ingest_status["detail"] = "resolving entities"
-        entities = resolve_entities(schema_data, ontology)
-        counts = sync_entities(driver, entities)
+        status["detail"] = "generating ontology"
+        ontology = generate_ontology(schema_data, org_id)
 
-        raw_docs = []
-        if doc_file_paths:
-            _ingest_status["detail"] = f"processing {len(doc_file_paths)} document(s)"
-            for fp in doc_file_paths:
-                p = Path(fp)
-                reader = READERS.get(p.suffix.lower())
-                if reader:
-                    text = reader(p)
-                    if text.strip():
-                        doc = {"path": str(p), "name": p.name, "text": text}
-                        raw_docs.append(doc)
-                        chunks = chunk_text(text)
-                        embed_and_store(driver, doc, chunks)
-                        for ent in entities:
-                            link_entity_to_chunks(driver, ent["canonical_id"], str(p))
+        status["detail"] = "resolving entities across sources and documents"
+        entities, proposed_rels = resolve_entities(schema_data, ontology, raw_docs)
+        relationships = build_relationships(entities, schema_data, ontology, proposed_rels)
+
+        status["detail"] = "writing entities and relationships"
+        counts = sync_entities(driver, org_id, entities, relationships)
+
+        for i, doc in enumerate(raw_docs, 1):
+            status["detail"] = f"embedding document {i}/{len(raw_docs)}"
+            embed_and_store(driver, org_id, doc, chunk_text(doc["text"]))
+            link_entities_to_chunks(driver, org_id, doc["path"])
 
         driver.close()
-        _ingest_status = {
+        _ingest_status[org_id] = {
             "state": "done",
             "detail": "complete",
             "entity_counts": counts,
             "entities": len(entities),
+            "relationships": len(relationships),
             "documents": len(raw_docs),
         }
     except Exception as exc:
-        _ingest_status = {"state": "error", "detail": str(exc)}
+        _ingest_status[org_id] = {"state": "error", "detail": str(exc)}
 
 
 @app.post("/ingest")
-def ingest(req: IngestRequest, background_tasks: BackgroundTasks, _: Principal = Depends(require_read_write)):
-    if _ingest_status.get("state") == "running":
+def ingest(req: IngestRequest, background_tasks: BackgroundTasks,
+           _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    if _ingest_status.get(org_id, {}).get("state") == "running":
         raise HTTPException(status_code=409, detail="Ingest already running")
 
-    # validate file paths stay within allowed directories
-    for fp in req.schema_file_paths:
-        _validate_path(fp, _SCHEMAS_BASE)
-    for fp in req.doc_file_paths:
-        _validate_path(fp, _DOCS_BASE)
+    # only connectors enabled and files configured for this org may be ingested
+    org_sources = get_org_sources(org_id)
+    enabled = {c["name"] for c in org_sources.get("connectors", []) if c["enabled"]}
+    for name in req.sources:
+        if name not in _EXTRACTORS or name not in enabled:
+            raise HTTPException(status_code=400, detail=f"Connector '{name}' is not enabled for this organisation")
+    allowed_schemas = {str(Path(f["path"]).resolve()) for f in org_sources.get("schema_files", [])}
+    allowed_docs = {str(Path(f["path"]).resolve()) for f in org_sources.get("documents", [])}
+    schema_paths = [str(_validate_path(fp, allowed_schemas)) for fp in req.schema_file_paths]
+    doc_paths = [str(_validate_path(fp, allowed_docs)) for fp in req.doc_file_paths]
 
-    background_tasks.add_task(_run_ingest, req.sources, req.schema_file_paths, req.doc_file_paths)
+    background_tasks.add_task(_run_ingest, org_id, req.sources, schema_paths, doc_paths)
     return {"status": "started"}
 
 
@@ -344,64 +344,64 @@ class SplitEntityRequest(BaseModel):
 
 
 @app.patch("/entities/{canonical_id}")
-def entity_update(canonical_id: str, req: UpdateEntityRequest, _: Principal = Depends(require_read_write)):
+def entity_update(canonical_id: str, req: UpdateEntityRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return update_entity(driver, canonical_id, req.canonical_label, req.class_name, req.status)
+        return update_entity(driver, org_id, canonical_id, req.canonical_label, req.class_name, req.status)
     finally:
         driver.close()
 
 
 @app.delete("/entities/{canonical_id}")
-def entity_remove(canonical_id: str, _: Principal = Depends(require_read_write)):
+def entity_remove(canonical_id: str, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return remove_entity(driver, canonical_id)
+        return remove_entity(driver, org_id, canonical_id)
     finally:
         driver.close()
 
 
 @app.post("/entities/{canonical_id}/approve")
-def entity_approve(canonical_id: str, _: Principal = Depends(require_read_write)):
+def entity_approve(canonical_id: str, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return approve_entity(driver, canonical_id)
+        return approve_entity(driver, org_id, canonical_id)
     finally:
         driver.close()
 
 
 @app.post("/entities/{canonical_id}/reject")
-def entity_reject(canonical_id: str, _: Principal = Depends(require_read_write)):
+def entity_reject(canonical_id: str, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return reject_entity(driver, canonical_id)
+        return reject_entity(driver, org_id, canonical_id)
     finally:
         driver.close()
 
 
 @app.post("/entities/{canonical_id}/split")
-def entity_split(canonical_id: str, req: SplitEntityRequest, _: Principal = Depends(require_read_write)):
+def entity_split(canonical_id: str, req: SplitEntityRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return split_entity(driver, canonical_id, req.entity_a, req.entity_b)
+        return split_entity(driver, org_id, canonical_id, req.entity_a, req.entity_b)
     finally:
         driver.close()
 
 
 @app.patch("/graph/relationship")
-def graph_rel_update(req: RelationshipRequest, _: Principal = Depends(require_read_write)):
+def graph_rel_update(req: RelationshipRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return update_graph_rel(driver, req.source_id, req.target_id, req.rel_type, req.new_type or req.rel_type)
+        return update_graph_rel(driver, org_id, req.source_id, req.target_id, req.rel_type, req.new_type or req.rel_type)
     finally:
         driver.close()
 
 
 @app.delete("/graph/relationship")
-def graph_rel_remove(req: RelationshipRequest, _: Principal = Depends(require_read_write)):
+def graph_rel_remove(req: RelationshipRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
     driver = get_driver()
     try:
-        return remove_graph_rel(driver, req.source_id, req.target_id, req.rel_type)
+        return remove_graph_rel(driver, org_id, req.source_id, req.target_id, req.rel_type)
     finally:
         driver.close()
 
@@ -429,30 +429,30 @@ class OntologyRelRequest(BaseModel):
 
 
 @app.patch("/ontology/classes/{name}")
-def ontology_class_update(name: str, req: UpdateClassRequest, _: Principal = Depends(require_read_write)):
-    return update_class(name, req.new_name, req.description, req.source_hints)
+def ontology_class_update(name: str, req: UpdateClassRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    return update_class(org_id, name, req.new_name, req.description, req.source_hints)
 
 
 @app.delete("/ontology/classes/{name}")
-def ontology_class_remove(name: str, _: Principal = Depends(require_read_write)):
-    return remove_class(name)
+def ontology_class_remove(name: str, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    return remove_class(org_id, name)
 
 
 @app.post("/ontology/classes")
-def ontology_class_add(req: AddClassRequest, _: Principal = Depends(require_read_write)):
-    return add_class(req.name, req.description, req.source_hints)
+def ontology_class_add(req: AddClassRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    return add_class(org_id, req.name, req.description, req.source_hints)
 
 
 @app.patch("/ontology/relationships")
-def ontology_rel_update(req: OntologyRelRequest, _: Principal = Depends(require_read_write)):
-    return update_onto_rel(req.from_class, req.to_class, req.name, req.new_name or req.name)
+def ontology_rel_update(req: OntologyRelRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    return update_onto_rel(org_id, req.from_class, req.to_class, req.name, req.new_name or req.name)
 
 
 @app.delete("/ontology/relationships")
-def ontology_rel_remove(req: OntologyRelRequest, _: Principal = Depends(require_read_write)):
-    return remove_onto_rel(req.from_class, req.to_class, req.name)
+def ontology_rel_remove(req: OntologyRelRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    return remove_onto_rel(org_id, req.from_class, req.to_class, req.name)
 
 
 @app.post("/ontology/relationships")
-def ontology_rel_add(req: OntologyRelRequest, _: Principal = Depends(require_read_write)):
-    return add_onto_rel(req.from_class, req.to_class, req.name, req.description)
+def ontology_rel_add(req: OntologyRelRequest, _: Principal = Depends(require_read_write), org_id: str = Depends(require_org)):
+    return add_onto_rel(org_id, req.from_class, req.to_class, req.name, req.description)

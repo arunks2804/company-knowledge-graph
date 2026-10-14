@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { api } from './api'
+import { api, setOrg } from './api'
 import OrgSelector from './components/OrgSelector'
 import SourceSelector from './components/SourceSelector'
 import SearchBox from './components/SearchBox'
@@ -9,7 +9,7 @@ import ReviewQueue from './components/ReviewQueue'
 
 type Mode = 'ask' | 'explore' | 'ontology' | 'ingest' | 'review'
 
-const s: Record<string, React.CSSProperties> = {
+const s = {
   app: { minHeight: '100vh', display: 'flex', flexDirection: 'column' },
   header: {
     padding: '14px 24px', background: 'var(--surface)',
@@ -36,7 +36,7 @@ const s: Record<string, React.CSSProperties> = {
   }),
   main: { flex: 1, display: 'flex', flexDirection: 'column', padding: 24, maxWidth: 1200, width: '100%', margin: '0 auto' },
   fullHeight: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 },
-}
+} satisfies Record<string, React.CSSProperties | ((...args: never[]) => React.CSSProperties)>
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('ask')
@@ -73,7 +73,7 @@ export default function App() {
       </header>
 
       {/* Org / App selector */}
-      <OrgSelector onSelect={(org, _app) => setOrgId(org)} />
+      <OrgSelector onSelect={(org, _app) => { setOrg(org); setOrgId(org) }} />
 
       {/* Nav */}
       <nav style={s.nav}>
@@ -85,8 +85,10 @@ export default function App() {
       </nav>
 
       {/* Main */}
-      <main style={s.main}>
-        {mode === 'ask' && (
+      <main style={s.main} key={orgId}>
+        {!orgId && <div style={{ color: 'var(--muted)', fontSize: 13 }}>Select an organisation to begin.</div>}
+
+        {orgId && mode === 'ask' && (
           <div>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
               Ask any question about your organisation's data. Answers are grounded in ingested schemas and documents.
@@ -95,7 +97,7 @@ export default function App() {
           </div>
         )}
 
-        {mode === 'explore' && (
+        {orgId && mode === 'explore' && (
           <div style={s.fullHeight}>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
               Search for an entity to see how it connects across all your data sources.
@@ -106,7 +108,7 @@ export default function App() {
           </div>
         )}
 
-        {mode === 'ontology' && (
+        {orgId && mode === 'ontology' && (
           <div style={s.fullHeight}>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
               Class-level view of your data model. Shows types and how they relate — not specific products or customers.
@@ -128,7 +130,7 @@ export default function App() {
           </div>
         )}
 
-        {mode === 'review' && <ReviewQueue />}
+        {orgId && mode === 'review' && <ReviewQueue />}
       </main>
     </div>
   )

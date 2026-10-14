@@ -7,7 +7,7 @@ const STATUS_COLORS: Record<string, string> = { auto_commit: 'var(--success)', n
 type Source = { source_type: string; table_or_datasource: string; key_column: string; key_value: string }
 type Entity = { canonical_id: string; canonical_label: string; class: string; confidence: number; status: string; sources: string }
 
-const p: Record<string, React.CSSProperties> = {
+const p = {
   wrap: { display: 'flex', flexDirection: 'column', gap: 12 },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   count: { fontSize: 14, color: 'var(--muted)' },
@@ -29,9 +29,10 @@ const p: Record<string, React.CSSProperties> = {
   saveBtn: { padding: '8px 0', borderRadius: 6, background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 13, width: '100%' },
   splitBtn: { padding: '8px 0', borderRadius: 6, background: 'var(--surface)', color: 'var(--accent)', fontWeight: 700, fontSize: 13, width: '100%', border: '1px solid var(--accent)' },
   empty: { color: 'var(--muted)', fontSize: 14, padding: 32, textAlign: 'center' as const },
-}
+} satisfies Record<string, React.CSSProperties | ((...args: never[]) => React.CSSProperties)>
 
 function parseSources(raw: string): Source[] {
+  try { return JSON.parse(raw) } catch { /* legacy Python-repr format */ }
   try { return JSON.parse(raw.replace(/'/g, '"')) } catch { return [] }
 }
 
@@ -132,7 +133,7 @@ function EntityCard({ entity, onDone }: { entity: Entity; onDone: () => void }) 
                   {s.table_or_datasource} · {s.key_column} = <strong>{s.key_value}</strong>
                 </label>
               ))}
-              {checkedSources.size < sources.size && (
+              {checkedSources.size < sources.length && (
                 <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 4 }}>
                   Unchecked sources will be removed from this entity and marked unresolved.
                 </div>

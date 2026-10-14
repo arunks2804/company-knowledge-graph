@@ -1,11 +1,13 @@
 """Loads and manages organisation config files from the orgs/ directory."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
 
 _ORGS_DIR = Path(__file__).parent.parent.parent.parent / "orgs"
+_ORG_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 ALL_CONNECTORS = ["postgres", "timescaledb", "druid", "dynamodb", "iceberg"]
 
@@ -28,8 +30,18 @@ def list_orgs() -> list[dict]:
     return orgs
 
 
+def org_dir(org_id: str) -> Path:
+    """Directory holding an org's config and generated artefacts. Rejects ids that could escape orgs/."""
+    if not _ORG_ID_RE.match(org_id or ""):
+        raise ValueError(f"Invalid org id: {org_id!r}")
+    return _ORGS_DIR / org_id
+
+
 def get_org(org_id: str) -> dict | None:
-    cfg_path = _ORGS_DIR / org_id / "config.yaml"
+    try:
+        cfg_path = org_dir(org_id) / "config.yaml"
+    except ValueError:
+        return None
     if not cfg_path.exists():
         return None
     with open(cfg_path) as f:

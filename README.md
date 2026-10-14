@@ -104,7 +104,7 @@ Two auth paths — humans get a session cookie, agents get an API key.
 curl -c cookies.txt -X POST http://localhost:8007/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "yourpassword"}'
-# subsequent requests: curl -b cookies.txt http://localhost:8007/entities
+# subsequent requests: curl -b cookies.txt -H "X-Org-Id: example" http://localhost:8007/entities
 ```
 
 **Create an API key for an agent (requires read_write session):**
@@ -117,10 +117,22 @@ curl -b cookies.txt -X POST http://localhost:8007/auth/api-keys \
 
 **Agent request with API key:**
 ```bash
-curl -H "Authorization: Bearer sk_..." http://localhost:8007/retrieve/investigate \
+curl -H "Authorization: Bearer sk_..." -H "X-Org-Id: example" http://localhost:8007/retrieve/investigate \
   -H "Content-Type: application/json" \
-  -d '{"question": "what tables contain product data?"}'
+  -d '{"question": "Which products had defects at WH-EAST?"}'
+
+# follow-up questions: pass the earlier turns as history
+curl -H "Authorization: Bearer sk_..." -H "X-Org-Id: example" http://localhost:8007/retrieve/investigate \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Who supplies those products?", "history": [
+        {"role": "user", "content": "Which products had defects at WH-EAST?"},
+        {"role": "assistant", "content": "Laptop Pro 14 (product:LP-4471) ..."}]}'
 ```
+
+**Organisation scope:** every graph, ontology, ingest and retrieval endpoint requires an
+`X-Org-Id` header naming an org under `orgs/`. Entities, documents and chunks are stored per
+org, each org's generated ontology is written to `orgs/<org_id>/ontology.yaml`, and ingestion
+only accepts connectors and files enabled in that org's `config.yaml`.
 
 ---
 

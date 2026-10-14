@@ -41,14 +41,23 @@ calibrate them precisely. Under-merging is safer than over-merging.
 7. **class field**: Must be an exact class name from the ontology provided.
    Never invent a class not in the list.
 
-8. **sources field**: Must be a JSON array of objects, each with keys:
+8. **Documents are sources**: A mention like "SKU LP-4471" in a report is a source
+   with `source_type: "document"`, `table_or_datasource: <document name>`,
+   `key_column: "mention"`, `key_value: "LP-4471"`. A document mention alone never
+   justifies confidence >= 0.50 (see rule 1).
+
+9. **sources field**: Must be a JSON array of objects, each with keys:
    `source_type`, `table_or_datasource`, `key_column`, `key_value`.
 
 ## Output contract
-Return valid JSON with a single top-level key `entities` containing an array of entity objects:
-`{"entities": [...]}`. Do NOT return a bare array. Each object must include:
+Return valid JSON with top-level keys `entities` (array of entity objects) and
+`relationships` (array, may be empty): `{"entities": [...], "relationships": [...]}`.
+Do NOT return a bare array. Each object must include:
 `canonical_id`, `canonical_label`, `class`, `confidence` (float 0–1), `sources` (array),
 `status` (auto_commit | needs_review | unresolved), `match_notes` (string).
+Each relationship object has `from_id`, `type`, `to_id`, `confidence`, `evidence`;
+only use relationship types and directions listed in the ontology, and only between
+canonical_ids you resolved or were given as already resolved.
 No markdown fences. No extra keys at the top level.
 
 ## Good example
@@ -68,6 +77,9 @@ No markdown fences. No extra keys at the top level.
       "status": "auto_commit",
       "match_notes": "Exact match across postgres and dynamo; druid normalised LP4471→LP-4471 by adding hyphen."
     }
+  ],
+  "relationships": [
+    {"from_id": "maintenanceincident:MNT-2024-001", "type": "AFFECTS", "to_id": "product:LP-4471", "confidence": 0.9, "evidence": "report_001.txt"}
   ]
 }
 ```

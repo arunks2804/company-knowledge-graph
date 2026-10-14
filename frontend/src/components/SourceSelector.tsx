@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api, OrgSources } from '../api'
 
-const s: Record<string, React.CSSProperties> = {
+const s = {
   wrap: {
     background: 'var(--surface)', border: '1px solid var(--border)',
     borderRadius: 10, padding: 20, marginBottom: 20,
@@ -32,7 +32,7 @@ const s: Record<string, React.CSSProperties> = {
   }),
   status: { fontSize: 13, color: 'var(--muted)' },
   badge: { fontSize: 11, color: 'var(--muted)', marginLeft: 6 },
-}
+} satisfies Record<string, React.CSSProperties | ((...args: never[]) => React.CSSProperties)>
 
 type Props = {
   orgId: string

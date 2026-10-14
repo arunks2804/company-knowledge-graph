@@ -1,9 +1,16 @@
 const BASE = '/api'
 
+// Every graph read/write is scoped to the selected organisation via the X-Org-Id header.
+let currentOrg = ''
+export function setOrg(orgId: string) { currentOrg = orgId }
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (currentOrg) headers['X-Org-Id'] = currentOrg
   const r = await fetch(`${BASE}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!r.ok) throw new Error(await r.text())
@@ -16,6 +23,15 @@ export type OrgSources = {
   schema_files: { name: string; path: string; folder: string }[]
   documents: { name: string; path: string; folder: string }[]
 }
+export type ChatTurn = { role: 'user' | 'assistant'; content: string }
+export type InvestigateResult = {
+  answer: string
+  standalone_question?: string
+  sources: { document?: string; path?: string; score?: number | null }[]
+  entities_used: string[]
+  relationships_used?: number
+}
+
 export type GraphData = {
   nodes: { data: { id: string; label: string; [k: string]: unknown } }[]
   edges: { data: { source: string; target: string; label: string; [k: string]: unknown } }[]
@@ -30,6 +46,7 @@ export const api = {
   health: () => req<{ neo4j: boolean; langsmith: boolean }>('GET', '/health'),
 
   // ontology
+  ontology: () => req<Record<string, unknown>>('GET', '/ontology'),
   ontologyGraph: () => req<GraphData>('GET', '/ontology/graph'),
 
   // ingest
@@ -77,8 +94,10 @@ export const api = {
     req<{ ok: boolean }>('POST', '/ontology/relationships', { from_class, to_class, name, description }),
 
   // retrieval
-  investigate: (question: string) =>
-    req<{ answer: string; sources: unknown[]; entities_used: string[] }>('POST', '/retrieve/investigate', { question }),
+  investigate: (question: string, history: ChatTurn[] = []) =>
+    req<InvestigateResult>('POST', '/retrieve/investigate', { question, history }),
+  searchChunks: (question: string) =>
+    req<Record<string, unknown>[]>('POST', '/retrieve/search/chunks', { question }),
   searchEntities: (question: string) =>
     req<Record<string, unknown>[]>('POST', '/retrieve/search/entities', { question }),
   cypher: (question: string) =>

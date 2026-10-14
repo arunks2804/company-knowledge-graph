@@ -10,7 +10,8 @@ or reversed relationship directions return empty results with no error.
 Every node carries `:Entity` plus one class label from the ontology.
 
 **Properties on all Entity nodes:**
-- `canonical_id` (string) — primary key, format `<class_lower>:<value>`
+- `org_id` (string) — owning organisation. The graph holds several organisations.
+- `canonical_id` (string) — key within an org, format `<class_lower>:<value>`
 - `canonical_label` (string) — human-readable name
 - `class` (string) — ontology class name
 - `confidence` (float)
@@ -29,6 +30,11 @@ Every node carries `:Entity` plus one class label from the ontology.
 ```
 
 ## Rules
+
+0. **Always scope to the organisation**: Every node pattern MUST include
+   `{org_id: $org_id}` — e.g. `(p:Product {org_id: $org_id})`. Re-using an
+   already-bound variable as `(p)` is fine. Queries with any unscoped node
+   pattern (including anonymous `()`) are rejected before execution.
 
 1. **Always include LIMIT**: Every MATCH clause that returns nodes must end with
    `LIMIT 50` unless the question requests a count or aggregate.
@@ -65,12 +71,13 @@ Return only valid JSON with exactly two keys: `cypher` (string) and
 ## Good example
 ```json
 {
-  "cypher": "MATCH (c:Customer)-[:PLACED]->(o:Order)-[:CONTAINS]->(p:Product) WHERE p.canonical_id = 'product:LP-4471' RETURN c.canonical_label AS customer, o.canonical_id AS order_id LIMIT 50",
+  "cypher": "MATCH (c:Customer {org_id: $org_id})-[:PLACED]->(o:Order {org_id: $org_id})-[:CONTAINS]->(p:Product {org_id: $org_id}) WHERE p.canonical_id = 'product:LP-4471' RETURN c.canonical_label AS customer, o.canonical_id AS order_id LIMIT 50",
   "explanation": "Returns all customers who placed orders containing the Laptop Pro 14 product."
 }
 ```
 
 ## Anti-patterns
+- ❌ `MATCH (p:Product {org_id: $org_id})-[:SUPPLIED_BY]->(s:Supplier)` — `s` is not scoped to the org
 - ❌ `MATCH (p:Product) WHERE p.name = "Laptop Pro"` — `name` does not exist; use `canonical_label`
 - ❌ `MATCH (o:Order)-[:PLACED]->(c:Customer)` — direction is reversed
 - ❌ No LIMIT clause on a node traversal

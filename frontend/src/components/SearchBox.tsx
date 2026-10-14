@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import { api } from '../api'
+import { api, ChatTurn, InvestigateResult } from '../api'
 
-const styles: Record<string, React.CSSProperties> = {
+const styles = {
   wrap: { display: 'flex', flexDirection: 'column', gap: 16 },
   row: { display: 'flex', gap: 8 },
   input: {
@@ -34,7 +34,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap', marginTop: 8,
     color: '#93c5fd',
   },
-}
+} satisfies Record<string, React.CSSProperties | ((...args: never[]) => React.CSSProperties)>
 
 type Mode = 'investigate' | 'entities' | 'chunks' | 'cypher'
 
@@ -44,6 +44,8 @@ export default function SearchBox() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<unknown>(null)
   const [error, setError] = useState('')
+  // investigate mode is a conversation: earlier turns are sent so follow-ups resolve
+  const [history, setHistory] = useState<ChatTurn[]>([])
 
   async function run() {
     if (!query.trim()) return
@@ -52,8 +54,12 @@ export default function SearchBox() {
     setResult(null)
     try {
       let res: unknown
-      if (mode === 'investigate') res = await api.investigate(query)
-      else if (mode === 'entities') res = await api.searchEntities(query)
+      if (mode === 'investigate') {
+        const r = await api.investigate(query, history)
+        setHistory(h => [...h, { role: 'user', content: query }, { role: 'assistant', content: r.answer }])
+        setQuery('')
+        res = r
+      } else if (mode === 'entities') res = await api.searchEntities(query)
       else if (mode === 'chunks') res = await api.searchChunks(query)
       else res = await api.cypher(query)
       setResult(res)
@@ -68,7 +74,7 @@ export default function SearchBox() {
     <div style={styles.wrap}>
       <div style={styles.tabs}>
         {(['investigate', 'entities', 'chunks', 'cypher'] as Mode[]).map(m => (
-          <button key={m} style={styles.tab(mode === m)} onClick={() => setMode(m)}>
+          <button key={m} style={styles.tab(mode === m)} onClick={() => { setMode(m); setResult(null); setError("") }}>
             {m === 'investigate' ? '🔍 Investigate' :
              m === 'entities' ? '🏷 Entities' :
              m === 'chunks' ? '📄 Docs' : '⚡ Cypher'}
@@ -96,6 +102,24 @@ export default function SearchBox() {
 
       {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
 
+      {mode === 'investigate' && history.length > 2 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {history.slice(0, -2).map((t, i) => (
+            <div key={i} style={{ fontSize: 13, color: t.role === 'user' ? 'var(--text)' : 'var(--muted)' }}>
+              <strong>{t.role === 'user' ? 'You' : 'Answer'}:</strong> {t.content}
+            </div>
+          ))}
+        </div>
+      )}
+      {mode === 'investigate' && history.length > 0 && (
+        <button
+          style={{ ...styles.tab(false), alignSelf: 'flex-start' }}
+          onClick={() => { setHistory([]); setResult(null) }}
+        >
+          New conversation
+        </button>
+      )}
+
       {result !== null && <ResultView mode={mode} result={result} />}
     </div>
   )
@@ -103,9 +127,12 @@ export default function SearchBox() {
 
 function ResultView({ mode, result }: { mode: Mode; result: unknown }) {
   if (mode === 'investigate') {
-    const r = result as { answer: string; sources: {document?: string; score?: number}[]; entities_used: string[] }
+    const r = result as InvestigateResult
     return (
       <div style={styles.result}>
+        {r.standalone_question && (
+          <div style={{ ...styles.label, fontStyle: 'italic' }}>Interpreted as: {r.standalone_question}</div>
+        )}
         <div style={styles.label}>Answer</div>
         <p style={{ marginBottom: 12 }}>{r.answer}</p>
         {r.entities_used?.length > 0 && (
@@ -119,7 +146,7 @@ function ResultView({ mode, result }: { mode: Mode; result: unknown }) {
             <div style={styles.label}>Sources</div>
             {r.sources.slice(0, 3).map((s, i) => (
               <div key={i} style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {s.document} {s.score !== undefined ? `(score: ${s.score.toFixed(3)})` : ''}
+                {s.document} {typeof s.score === 'number' ? `(score: ${s.score.toFixed(3)})` : '(linked via graph)'}
               </div>
             ))}
           </div>
