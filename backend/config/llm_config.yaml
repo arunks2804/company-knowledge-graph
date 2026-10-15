@@ -1,8 +1,10 @@
 provider: ollama          # ollama | anthropic | openai
-model: llama3.1           # ollama: llama3.1 | anthropic: claude-sonnet-4-6 | openai: gpt-4o
+model: llama3.1:8b        # ollama: llama3.1:8b | anthropic: claude-sonnet-4-6 | openai: gpt-4o
 embedding_model: nomic-embed-text   # ollama only; anthropic/openai use their own
 
 ollama_base_url: http://localhost:11434
+num_ctx: 16384            # ollama context window; its 4096 default silently truncates resolution prompts
+request_timeout: 600       # seconds; local 8B models need minutes for large resolution prompts
 
 # Confidence thresholds for entity resolution
 confidence:

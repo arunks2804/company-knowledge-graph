@@ -10,6 +10,7 @@ Pipeline:
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from neo4j import GraphDatabase
@@ -19,7 +20,7 @@ from .search import extract_mentions, find_entities, vector_search
 
 _SKILL = (Path(__file__).parent.parent.parent.parent / "skills" / "investigation_rag.md").read_text()
 
-MAX_HOPS = 2
+MAX_HOPS = 3
 MAX_HISTORY_TURNS = 6
 MAX_TURN_CHARS = 1500
 
@@ -58,15 +59,17 @@ Return JSON with keys "standalone_question" and "mentions".
         return question, extract_mentions(str(last_answer))
 
 
-def _traverse(session, org_id: str, canonical_ids: list[str], limit: int = 60) -> list[dict]:
-    """Distinct entity-to-entity edges within MAX_HOPS of the seed entities, in either direction."""
+def _traverse(session, org_id: str, canonical_ids: list[str], limit: int = 80) -> list[dict]:
+    """Distinct entity-to-entity edges within MAX_HOPS of the seed entities, in either direction,
+    nearest first so the limit drops the most distant edges."""
     return session.run(
         f"""
         MATCH (e:Entity {{org_id: $org}}) WHERE e.canonical_id IN $cids
-        MATCH (e)-[rels*1..{MAX_HOPS}]-(:Entity {{org_id: $org}})
+        MATCH p = (e)-[rels*1..{MAX_HOPS}]-(:Entity {{org_id: $org}})
         WHERE none(r IN rels WHERE type(r) = 'MENTIONED_IN')
-        UNWIND rels AS r
-        WITH DISTINCT r
+        UNWIND range(0, size(rels) - 1) AS i
+        WITH rels[i] AS r, min(i) AS hop
+        ORDER BY hop
         RETURN startNode(r).canonical_id AS src,
                startNode(r).canonical_label AS src_label,
                type(r) AS rel,
@@ -98,6 +101,46 @@ def _mentioning_chunks(session, org_id: str, canonical_ids: list[str], limit: in
     ).data()
 
 
+def _data_map(session, org_id: str, max_lines: int = 40) -> str:
+    """Where each class lives in the source systems — tables, key columns, and the tables that share
+    a key (i.e. how to join them). Built from the source references recorded on resolved entities."""
+    rows = session.run(
+        "MATCH (e:Entity {org_id: $org}) RETURN e.class AS cls, e.sources AS sources",
+        org=org_id,
+    ).data()
+    locations: dict[str, set[str]] = {}
+    for row in rows:
+        try:
+            sources = json.loads(row["sources"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        for src in sources:
+            if not isinstance(src, dict) or src.get("source_type") in (None, "document"):
+                continue
+            loc = f"{src['source_type']}.{src.get('table_or_datasource')}.{src.get('key_column')}"
+            locations.setdefault(row["cls"] or "Entity", set()).add(loc)
+    lines = []
+    for cls in sorted(locations):
+        locs = sorted(locations[cls])
+        line = f"- {cls}: {', '.join(locs)}"
+        if len(locs) > 1:
+            line += "  (tables sharing this key can be joined on it)"
+        lines.append(line)
+    return "\n".join(lines[:max_lines])
+
+
+def _sources_by_document(chunks: list[dict]) -> list[dict]:
+    """One entry per document (several excerpts can come from the same file), best score kept."""
+    best: dict[str, dict] = {}
+    for c in chunks:
+        key = c.get("path") or c.get("document")
+        score = c.get("score")
+        entry = best.setdefault(key, {"document": c.get("document"), "path": c.get("path"), "score": score})
+        if score is not None and (entry["score"] is None or score > entry["score"]):
+            entry["score"] = score
+    return list(best.values())
+
+
 def investigate(driver: GraphDatabase.driver, org_id: str, question: str,
                 history: list[dict] | None = None) -> dict:
     """
@@ -117,8 +160,9 @@ def investigate(driver: GraphDatabase.driver, org_id: str, question: str,
 
     edges: list[dict] = []
     graph_chunks: list[dict] = []
-    if seed_ids:
-        with driver.session() as session:
+    with driver.session() as session:
+        data_map = _data_map(session, org_id)
+        if seed_ids:
             edges = _traverse(session, org_id, seed_ids)
             graph_chunks = _mentioning_chunks(session, org_id, seed_ids)
 
@@ -153,6 +197,9 @@ You are an analyst with access to a company knowledge graph.
 Question: {question}
 {f"(Interpreted as: {standalone})" if standalone != question else ""}
 
+Data map — which source tables and key columns hold each kind of entity:
+{data_map or '(nothing ingested yet)'}
+
 Entities matched in the question:
 {entity_context or '(none found)'}
 
@@ -170,10 +217,7 @@ If the context does not contain enough information, say so.
     return {
         "answer": answer,
         "standalone_question": standalone,
-        "sources": [
-            {"document": c.get("document"), "path": c.get("path"), "score": c.get("score")}
-            for c in chunks
-        ],
+        "sources": _sources_by_document(chunks),
         "entities_used": [e["label"] or e["id"] for e in entity_hits[:5]],
         "relationships_used": len(edges),
     }

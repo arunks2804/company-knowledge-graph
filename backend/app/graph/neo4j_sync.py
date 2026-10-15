@@ -67,7 +67,7 @@ def upsert_entity(driver, org_id: str, entity: dict) -> None:
             label=entity.get("canonical_label", ""),
             confidence=entity.get("confidence", 0.0),
             status=entity.get("status", "unresolved"),
-            sources=json.dumps(entity.get("sources", [])),
+            sources=json.dumps(entity.get("sources", []), default=str),
             terms=_match_terms(entity),
         )
 

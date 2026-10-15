@@ -19,12 +19,12 @@ type SelectedEdge = { type: 'edge'; source: string; target: string; relType: str
 type Selected = SelectedNode | SelectedEdge | null
 
 const p: Record<string, React.CSSProperties> = {
-  wrap: { display: 'flex', flexDirection: 'column', height: '100%', gap: 12 },
+  wrap: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: 12 },
   searchRow: { display: 'flex', gap: 8 },
   input: { flex: 1, padding: '10px 14px', borderRadius: 8, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: 14, outline: 'none' },
   btn: { padding: '10px 20px', borderRadius: 8, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 14 },
   body: { flex: 1, display: 'flex', gap: 12, minHeight: 0 },
-  canvas: { flex: 1, background: 'var(--surface2)', borderRadius: 10, border: '1px solid var(--border)', position: 'relative' as const },
+  canvas: { flex: 1, minWidth: 0, background: 'var(--surface2)', borderRadius: 10, border: '1px solid var(--border)', position: 'relative' as const },
   empty: { position: 'absolute' as const, inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13, pointerEvents: 'none' as const },
   panel: { width: 260, background: 'var(--surface)', borderRadius: 10, padding: 16, border: '1px solid var(--border)', flexShrink: 0, overflowY: 'auto' as const, display: 'flex', flexDirection: 'column', gap: 12 },
   panelTitle: { fontWeight: 700, fontSize: 13, color: 'var(--accent)', marginBottom: 4 },
@@ -113,6 +113,8 @@ export default function NeighbourhoodGraph() {
 
     cy.on('tap', evt => { if (evt.target === cy) setSelected(null) })
     cyRef.current = cy
+    // dev-only handle so end-to-end demos can locate nodes on the canvas
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__kgExploreCy = cy
   }, [])
 
   useEffect(() => { initCy(); return () => { cyRef.current?.destroy() } }, [initCy])
@@ -153,7 +155,7 @@ export default function NeighbourhoodGraph() {
       await api.updateEntity(selected.id, { canonical_label: editLabel, class_name: editClass, status: editStatus })
       const cy = cyRef.current
       if (cy) {
-        const node = cy.$(`#${selected.id}`)
+        const node = cy.getElementById(selected.id)
         node.data('label', editLabel)
         node.data('nodeClasses', editClass ? [editClass] : [])
       }
@@ -169,7 +171,7 @@ export default function NeighbourhoodGraph() {
       const cy = cyRef.current
       if (cy) {
         const edgeId = `${selected.source}-${selected.relType}-${selected.target}`
-        cy.$(`#${edgeId}`).data('label', editRelType)
+        cy.getElementById(edgeId).data('label', editRelType)
       }
       setSelected(prev => prev && prev.type === 'edge' ? { ...prev, relType: editRelType } : prev)
     } finally { setSaving(false) }
@@ -178,7 +180,7 @@ export default function NeighbourhoodGraph() {
   async function removeNode() {
     if (!selected || selected.type !== 'node') return
     await api.removeEntity(selected.id)
-    cyRef.current?.$(`#${selected.id}`).remove()
+    cyRef.current?.getElementById(selected.id).remove()
     setSelected(null)
   }
 
@@ -186,7 +188,7 @@ export default function NeighbourhoodGraph() {
     if (!selected || selected.type !== 'edge') return
     await api.removeGraphRelationship(selected.source, selected.target, selected.relType)
     const edgeId = `${selected.source}-${selected.relType}-${selected.target}`
-    cyRef.current?.$(`#${edgeId}`).remove()
+    cyRef.current?.getElementById(edgeId).remove()
     setSelected(null)
   }
 

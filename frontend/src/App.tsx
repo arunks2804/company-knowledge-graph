@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { api, setOrg } from './api'
+import { api, Me, setOrg } from './api'
+import Login from './components/Login'
 import OrgSelector from './components/OrgSelector'
 import SourceSelector from './components/SourceSelector'
 import SearchBox from './components/SearchBox'
@@ -42,10 +43,21 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('ask')
   const [health, setHealth] = useState<{ neo4j: boolean; langsmith: boolean } | null>(null)
   const [orgId, setOrgId] = useState('')
+  // undefined = still checking the session, null = signed out
+  const [me, setMe] = useState<Me | null | undefined>(undefined)
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => null)
+    api.me().then(setMe).catch(() => setMe(null))
   }, [])
+
+  async function logout() {
+    await api.logout().catch(() => null)
+    setMe(null)
+  }
+
+  if (me === undefined) return null
+  if (me === null) return <Login onLogin={setMe} />
 
   const tabs: { id: Mode; label: string }[] = [
     { id: 'ask',      label: '💬 Ask' },
@@ -69,6 +81,8 @@ export default function App() {
               <span><span style={s.dot(health.langsmith)} />LangSmith</span>
             </>
           )}
+          <span>{me.name} · {me.role === 'read_write' ? 'read-write' : 'read-only'}</span>
+          <button style={{ background: 'transparent', color: 'var(--muted)', fontSize: 12 }} onClick={logout}>Sign out</button>
         </div>
       </header>
 
@@ -102,7 +116,7 @@ export default function App() {
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
               Search for an entity to see how it connects across all your data sources.
             </p>
-            <div style={{ flex: 1, minHeight: 500 }}>
+            <div style={{ flex: 1, minHeight: 500, display: 'flex', flexDirection: 'column' }}>
               <NeighbourhoodGraph />
             </div>
           </div>
@@ -114,7 +128,7 @@ export default function App() {
               Class-level view of your data model. Shows types and how they relate — not specific products or customers.
               Click any node for details.
             </p>
-            <div style={{ flex: 1, minHeight: 500 }}>
+            <div style={{ flex: 1, minHeight: 500, display: 'flex', flexDirection: 'column' }}>
               <OntologyGraph />
             </div>
           </div>

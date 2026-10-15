@@ -51,7 +51,7 @@ def generate_ontology(schema_data: list[dict], org_id: str | None = None) -> dic
     seed = load_seed_ontology(org_id)
     provider = get_provider()
 
-    schema_summary = json.dumps(schema_data, indent=2)[:8000]
+    schema_summary = json.dumps(schema_data, indent=2, default=str)[:8000]
     seed_str = yaml.dump(seed, default_flow_style=False)
 
     prompt = f"""

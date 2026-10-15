@@ -17,6 +17,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return r.json()
 }
 
+export type Me = { name: string; role: 'read_only' | 'read_write'; kind: string }
+
 export type OrgSummary = { id: string; name: string; apps: { id: string; name: string }[] }
 export type OrgSources = {
   connectors: { name: string; enabled: boolean; supported: boolean }[]
@@ -38,6 +40,12 @@ export type GraphData = {
 }
 
 export const api = {
+  // auth
+  login: (username: string, password: string) =>
+    req<{ username: string; role: string }>('POST', '/auth/login', { username, password }),
+  logout: () => req<{ status: string }>('POST', '/auth/logout'),
+  me: () => req<Me>('GET', '/auth/me'),
+
   // orgs
   orgs: () => req<OrgSummary[]>('GET', '/orgs'),
   orgSources: (orgId: string) => req<OrgSources>('GET', `/orgs/${orgId}/sources`),

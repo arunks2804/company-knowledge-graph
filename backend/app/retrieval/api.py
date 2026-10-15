@@ -40,6 +40,8 @@ def neighbourhood(canonical_id: str, hops: int = 1,
                            other_id: other.canonical_id,
                            other_label: other.canonical_label,
                            other_classes: labels(other),
+                           other_status: other.status,
+                           other_confidence: other.confidence,
                            direction: CASE WHEN startNode(r) = e THEN 'out' ELSE 'in' END
                        }) AS connections
                 """,
@@ -76,6 +78,8 @@ def neighbourhood(canonical_id: str, hops: int = 1,
                         "id": other_id,
                         "label": conn.get("other_label", other_id),
                         "classes": [c for c in other_classes if c != "Entity"],
+                        "status": conn.get("other_status"),
+                        "confidence": conn.get("other_confidence"),
                     }
                 })
                 if conn.get("direction") == "out":

@@ -1,4 +1,6 @@
 import json
+import os
+
 import httpx
 from ..provider import LLMProvider
 
@@ -7,7 +9,10 @@ class OllamaProvider(LLMProvider):
     def __init__(self, cfg: dict):
         self.model = cfg.get("model", "llama3.1")
         self.embed_model = cfg.get("embedding_model", "nomic-embed-text")
-        self.base_url = cfg.get("ollama_base_url", "http://localhost:11434")
+        self.base_url = os.environ.get("OLLAMA_BASE_URL") or cfg.get("ollama_base_url", "http://localhost:11434")
+        self.timeout = cfg.get("request_timeout", 600)
+        # Ollama defaults to a 4096-token window and drops the start of longer prompts without error
+        self.options = {"num_ctx": cfg.get("num_ctx", 16384)}
 
     def _chat(self, prompt: str) -> str:
         r = httpx.post(
@@ -17,8 +22,9 @@ class OllamaProvider(LLMProvider):
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
                 "format": "json",
+                "options": self.options,
             },
-            timeout=120,
+            timeout=self.timeout,
         )
         r.raise_for_status()
         return r.json()["message"]["content"]
@@ -36,8 +42,9 @@ class OllamaProvider(LLMProvider):
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
+                "options": self.options,
             },
-            timeout=120,
+            timeout=self.timeout,
         )
         r.raise_for_status()
         return r.json()["message"]["content"]

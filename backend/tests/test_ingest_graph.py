@@ -19,6 +19,10 @@ HEADERS = {"X-Org-Id": ORG}
 
 PG = {"source": "postgres", "schema": {"orders": [{"column": "order_id"}, {"column": "customer_id"}]},
       "samples": {"orders": [{"order_id": "ORD-20240101", "customer_id": "CUST-001"}]}}
+# the customer also exists in a second system, so exact-key resolution auto-commits it (0.90),
+# while the order is Postgres + one document mention only (0.75 → needs_review)
+DYNAMO = {"source": "dynamodb", "schema": {"customer_profiles": [{"column": "customer_id"}]},
+          "samples": {"customer_profiles": [{"customer_id": "CUST-001"}]}}
 
 
 def _ent(cid, cls, key, conf):
@@ -58,6 +62,7 @@ def env(monkeypatch, tmp_path):
         monkeypatch.setattr(mod, "get_provider", lambda: provider)
     monkeypatch.setattr(taxonomy, "org_dir", lambda org_id: tmp_path)   # keep ontology writes out of the repo
     monkeypatch.setitem(ig.EXTRACTORS, "postgres", lambda: PG)
+    monkeypatch.setitem(ig.EXTRACTORS, "dynamodb", lambda: DYNAMO)
 
     driver = MagicMock()
     monkeypatch.setattr(ig, "get_driver", lambda: driver)
@@ -69,7 +74,7 @@ def env(monkeypatch, tmp_path):
     main.app.dependency_overrides[require_read_only] = lambda: user
     main.app.dependency_overrides[require_read_write] = lambda: user
     monkeypatch.setattr(main, "get_org_sources", lambda org_id: {
-        "connectors": [{"name": "postgres", "enabled": True}],
+        "connectors": [{"name": "postgres", "enabled": True}, {"name": "dynamodb", "enabled": True}],
         "schema_files": [],
         "documents": [{"path": str(doc)}],
     })
@@ -86,7 +91,7 @@ def _cypher(driver):
 
 def _ingest(client, doc):
     r = client.post("/ingest", headers=HEADERS,
-                    json={"sources": ["postgres"], "doc_file_paths": [doc]})
+                    json={"sources": ["postgres", "dynamodb"], "doc_file_paths": [doc]})
     assert r.status_code == 200
     return client.get("/ingest/status", headers=HEADERS).json()
 
@@ -151,7 +156,9 @@ def test_review_gate_approve_commits_entity(env, monkeypatch):
 def test_review_gate_skipped_when_nothing_needs_review(env, monkeypatch):
     client, _, _, doc = env
     monkeypatch.setattr(ig, "review_gate_enabled", lambda: True)
-    monkeypatch.setitem(RESOLUTION["entities"][1], "confidence", 0.99)
+    # the order is now also in a second system, so nothing falls into the review band
+    both = {**DYNAMO, "samples": {**DYNAMO["samples"], "order_events": [{"order_id": "ORD-20240101"}]}}
+    monkeypatch.setitem(ig.EXTRACTORS, "dynamodb", lambda: both)
 
     assert _ingest(client, doc)["state"] == "done"
 

@@ -10,6 +10,7 @@ classes:
 
   - name: Product
     description: "A physical item that can be manufactured, stocked, ordered, and serviced."
+    source_hints: [product_id, sku_code, product_sku, sku]
     parent: Entity
     properties:
       - name: id
@@ -24,6 +25,7 @@ classes:
 
   - name: Customer
     description: "A person or organisation that places orders."
+    source_hints: [customer_id]
     parent: Entity
     properties:
       - name: id
@@ -40,6 +42,7 @@ classes:
 
   - name: Order
     description: "A purchase transaction from a customer."
+    source_hints: [order_id]
     parent: Entity
     properties:
       - name: id
@@ -52,6 +55,7 @@ classes:
 
   - name: Warehouse
     description: "A physical storage location holding product inventory."
+    source_hints: [warehouse_id, warehouse]
     parent: Entity
     properties:
       - name: id
@@ -62,6 +66,7 @@ classes:
 
   - name: Supplier
     description: "An external supplier that provides products."
+    source_hints: [supplier_id, preferred_supplier]
     parent: Entity
     properties:
       - name: id
@@ -69,6 +74,7 @@ classes:
 
   - name: Shipment
     description: "A physical delivery of an order from warehouse to customer."
+    source_hints: [shipment_id]
     parent: Entity
     properties:
       - name: id
@@ -78,6 +84,7 @@ classes:
 
   - name: MaintenanceIncident
     description: "A reported fault, failure, or quality issue with a product unit."
+    source_hints: [incident_id, report_id]
     parent: Entity
     properties:
       - name: id

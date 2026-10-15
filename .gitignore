@@ -21,3 +21,10 @@ neo4j/logs/
 
 # OS
 .DS_Store
+
+# Playwright demo artefacts
+demo/.auth.demo.json
+demo/node_modules/
+demo/test-results/
+demo/playwright-report/
+demo/recordings/

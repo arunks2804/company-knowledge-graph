@@ -13,8 +13,8 @@ type SelectedRel = { type: 'rel'; from_class: string; to_class: string; name: st
 type Selected = SelectedClass | SelectedRel | null
 
 const p: Record<string, React.CSSProperties> = {
-  wrap: { display: 'flex', height: '100%', gap: 16 },
-  canvas: { flex: 1, background: 'var(--surface2)', borderRadius: 10, border: '1px solid var(--border)', position: 'relative' as const },
+  wrap: { display: 'flex', flex: 1, minHeight: 0, gap: 16 },
+  canvas: { flex: 1, minWidth: 0, background: 'var(--surface2)', borderRadius: 10, border: '1px solid var(--border)', position: 'relative' as const },
   toolbar: { position: 'absolute' as const, top: 12, right: 12, display: 'flex', gap: 6 },
   toolBtn: { padding: '6px 12px', borderRadius: 6, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: 12, cursor: 'pointer' },
   panel: { width: 280, background: 'var(--surface)', borderRadius: 10, padding: 16, border: '1px solid var(--border)', flexShrink: 0, overflowY: 'auto' as const, display: 'flex', flexDirection: 'column', gap: 12 },
@@ -110,6 +110,8 @@ export default function OntologyGraph() {
 
     cy.on('tap', evt => { if (evt.target === cy) setSelected(null) })
     cyRef.current = cy
+    // dev-only handle so end-to-end demos can locate nodes on the canvas
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__kgOntologyCy = cy
   }, [])
 
   async function loadGraph() {

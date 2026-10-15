@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 from pathlib import Path
 
 import bcrypt
 
-_AUTH_PATH = Path(__file__).parent.parent.parent / "config" / "auth.json"
+_AUTH_PATH = Path(os.environ.get("AUTH_STORE_PATH") or Path(__file__).parent.parent.parent / "config" / "auth.json")
 
 # token -> user_id (in-memory, cleared on restart)
 _sessions: dict[str, str] = {}

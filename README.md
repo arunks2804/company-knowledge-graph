@@ -198,6 +198,20 @@ in memory, so a backend restart discards them.
 | 0.50–0.85 | `needs_review` | Written but flagged in Review Queue |
 | < 0.50 | `unresolved` | Not committed, surfaced for manual review |
 
+Confidence is computed from the evidence actually found, not taken from the LLM: exact id matches in
+3+ systems → 0.97, 2 systems → 0.90, one system plus a document mention → 0.75, one system → 0.60.
+Entities that exist only in documents (e.g. an incident declared in a report header) go to review.
+Every source an LLM claims must appear in the material it was shown, and links between two database
+records come only from the databases — documents can only add links to document-only entities.
+
+---
+
+## Demo
+
+[`demo/`](demo/README.md) has Playwright walkthroughs of the PRODUCT.md workflows (ingest, ontology,
+review queue, Ask with a follow-up, Explore, and an agent using an API key), recorded as videos
+against the real local stack.
+
 ---
 
 ## LangSmith tracing
