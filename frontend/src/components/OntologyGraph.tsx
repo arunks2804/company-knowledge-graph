@@ -66,7 +66,8 @@ export default function OntologyGraph() {
     const cy = cytoscape({
       container: containerRef.current,
       elements: [
-        ...data.nodes.map(n => ({ data: n.data, classes: 'class-node' })),
+        // box width follows the label so long names (MaintenanceIncident) stay inside their node
+        ...data.nodes.map(n => ({ data: { ...n.data, w: Math.max(120, String(n.data.label).length * 10 + 32) }, classes: 'class-node' })),
         ...data.edges.map(e => ({ data: e.data, classes: 'rel-edge' })),
       ],
       style: [
@@ -74,8 +75,8 @@ export default function OntologyGraph() {
           selector: 'node.class-node',
           style: {
             'background-color': (el: cytoscape.NodeSingular) => CLASS_COLORS[el.data('label')] || '#4f9cf9',
-            'label': 'data(label)', 'color': '#fff', 'font-size': '13px', 'font-weight': 'bold',
-            'text-valign': 'center', 'text-halign': 'center', 'width': 130, 'height': 42, 'shape': 'round-rectangle',
+            'label': 'data(label)', 'color': '#fff', 'font-size': '15px', 'font-weight': 'bold',
+            'text-valign': 'center', 'text-halign': 'center', 'width': 'data(w)', 'height': 44, 'shape': 'round-rectangle',
           } as cytoscape.Css.Node,
         },
         { selector: 'node.class-node:selected', style: { 'border-width': 3, 'border-color': '#fff' } as cytoscape.Css.Node },
@@ -90,7 +91,12 @@ export default function OntologyGraph() {
         },
         { selector: 'edge.rel-edge:selected', style: { 'line-color': 'var(--accent)', 'target-arrow-color': 'var(--accent)' } as cytoscape.Css.Edge },
       ],
-      layout: { name: 'cose', padding: 40, nodeRepulsion: () => 8000, idealEdgeLength: () => 140, animate: false } as cytoscape.CoseLayoutOptions,
+      // class boxes are 130×42, so the layout must account for their size or they overlap
+      layout: {
+        name: 'cose', padding: 40, animate: false, randomize: false, fit: true,
+        nodeDimensionsIncludeLabels: true, nodeOverlap: 40, componentSpacing: 120,
+        nodeRepulsion: () => 400000, idealEdgeLength: () => 170, numIter: 2500,
+      } as cytoscape.CoseLayoutOptions,
       userZoomingEnabled: true, userPanningEnabled: true,
     })
 
@@ -112,6 +118,15 @@ export default function OntologyGraph() {
     cyRef.current = cy
     // dev-only handle so end-to-end demos can locate nodes on the canvas
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__kgOntologyCy = cy
+  }, [])
+
+  // the canvas can be laid out before it reaches its final size — re-fit whenever it resizes
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => { const cy = cyRef.current; if (cy) { cy.resize(); cy.fit(undefined, 40) } })
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [])
 
   async function loadGraph() {

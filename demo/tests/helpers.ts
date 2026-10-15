@@ -15,24 +15,41 @@ export const ORG = process.env.DEMO_ORG ?? 'example'
 /** Pause so a viewer can read what is on screen. */
 export const beat = (page: Page, ms = 1500) => page.waitForTimeout(ms)
 
-/** Show a caption banner over the app so the recording narrates itself. */
+let captionAt: 'top' | 'bottom' = 'bottom'
+/** 'top' renders captions as a banner above the app (the page is shifted down, so nothing is covered). */
+export function setCaptionPosition(where: 'top' | 'bottom') { captionAt = where }
+
+/** Show a caption over the app so the recording narrates itself. */
 export async function caption(page: Page, title: string, detail = '') {
-  await page.evaluate(([t, d]) => {
+  await page.evaluate(([t, d, where]) => {
+    const BANNER = 96
     let el = document.getElementById('__demo_caption')
     if (!el) {
       el = document.createElement('div')
       el.id = '__demo_caption'
-      el.style.cssText = [
-        'position:fixed', 'left:50%', 'bottom:24px', 'transform:translateX(-50%)', 'z-index:99999',
-        'max-width:min(900px,90vw)', 'padding:14px 22px', 'border-radius:12px',
-        'background:rgba(15,17,23,.92)', 'border:1px solid #4f9cf9', 'color:#e2e8f0',
-        'font:500 15px/1.45 Inter,system-ui,sans-serif', 'box-shadow:0 8px 30px rgba(0,0,0,.45)',
-        'pointer-events:none',
-      ].join(';')
       document.body.appendChild(el)
     }
+    if (where === 'top') {
+      el.style.cssText = [
+        'position:fixed', 'left:0', 'right:0', 'top:0', `height:${BANNER}px`, 'z-index:99999',
+        'display:flex', 'flex-direction:column', 'justify-content:center', 'padding:0 40px',
+        'background:#0b0d13', 'border-bottom:2px solid #4f9cf9', 'color:#e2e8f0',
+        'font-family:Inter,system-ui,sans-serif', 'pointer-events:none',
+      ].join(';')
+      document.body.style.paddingTop = `${BANNER}px`
+      el.innerHTML = `<div style="font:800 24px/1.2 Inter,system-ui,sans-serif;color:#4f9cf9">${t}</div>` +
+        (d ? `<div style="font:500 18px/1.35 Inter,system-ui,sans-serif;margin-top:6px">${d}</div>` : '')
+      return
+    }
+    el.style.cssText = [
+      'position:fixed', 'left:50%', 'bottom:24px', 'transform:translateX(-50%)', 'z-index:99999',
+      'max-width:min(900px,90vw)', 'padding:14px 22px', 'border-radius:12px',
+      'background:rgba(15,17,23,.92)', 'border:1px solid #4f9cf9', 'color:#e2e8f0',
+      'font:500 15px/1.45 Inter,system-ui,sans-serif', 'box-shadow:0 8px 30px rgba(0,0,0,.45)',
+      'pointer-events:none',
+    ].join(';')
     el.innerHTML = `<div style="font-weight:700;color:#4f9cf9;margin-bottom:${d ? 4 : 0}px">${t}</div>${d ? `<div>${d}</div>` : ''}`
-  }, [title, detail])
+  }, [title, detail, captionAt] as const)
   await beat(page, 1800)
 }
 

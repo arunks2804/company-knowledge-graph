@@ -28,3 +28,30 @@ def test_cypher_guard_rejects_unscoped_queries():
     assert _unscoped_node_patterns("MATCH ()-[r]->() RETURN r LIMIT 5")
     assert _unscoped_node_patterns("MATCH (a:Product {org_id: $org_id}), (b) RETURN b")
     assert _unscoped_node_patterns("MATCH (p:Product {org_id: 'other'}) RETURN p")
+
+
+def test_plain_answer_strips_citation_markup():
+    from app.retrieval.investigate import plain_answer
+    raw = ("The products with defects at WH-EAST are Laptop Pro 14 (product:LP-4471) "
+           "[graph: Laptop Pro 14 (product:LP-4471) -[STOCKED_AT]-> WH-EAST (warehouse:WH-EAST)], "
+           "which has 4 defective units. The supplier is SUP-001 [graph: Laptop Pro 14 -[SUPPLIED_BY]-> SUP-001]. "
+           "[doc: report_003.txt] and [doc: report_001.txt] both support this answer.")
+    out = plain_answer(raw)
+    assert out == ("The products with defects at WH-EAST are Laptop Pro 14 (LP-4471), which has 4 defective units. "
+                   "The supplier is SUP-001.")
+
+
+def test_plain_answer_leaves_normal_text_alone():
+    from app.retrieval.investigate import plain_answer
+    text = "Join orders and order_items on order_id (both in Postgres)."
+    assert plain_answer(text) == text
+
+
+def test_plain_answer_drops_sources_list_and_lead_in():
+    from app.retrieval.investigate import plain_answer
+    raw = ("Here is the answer: The Laptop Pro 14 (LP-4471) had defects at the East warehouse (WH-EAST). "
+           "It is supplied by SUP-001. Sources: - Supplier quality review report SQR-2024-001 - Maintenance report")
+    assert plain_answer(raw) == ("The Laptop Pro 14 (LP-4471) had defects at the East warehouse (WH-EAST). "
+                                 "It is supplied by SUP-001.")
+    assert plain_answer("Based on the graph relationships and document excerpts, the supplier is SUP-001.") \
+        == "The supplier is SUP-001."

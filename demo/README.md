@@ -43,5 +43,15 @@ specs need it to have run at least once. Set `DEMO_SKIP_INGEST=1` to record only
 selection. `npm run demo:headed` shows the browser while it runs; `DEMO_SLOWMO` (ms, default 250)
 changes the pace.
 
+## Highlight video (LinkedIn)
+
+`07-linkedin-reel.spec.ts` (tagged `@reel`, excluded from `npm run demo`) records the key use cases
+in one take using the graph from a previous ingest, logging every LLM wait. `make-reel.mjs` then
+cuts those waits and exports an H.264 MP4 (~75 s) to `recordings/linkedin-reel.mp4`. Needs `ffmpeg`.
+
+```bash
+npm run reel
+```
+
 LLM answers come from an 8B local model, so wording differs between runs and is less precise than
 a hosted model. Switch `provider` in `backend/config/llm_config.yaml` to compare.

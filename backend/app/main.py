@@ -150,6 +150,7 @@ def ontology_graph(_: Principal = Depends(require_read_only), org_id: str = Depe
             }
         }
         for c in data.get("classes", [])
+        if not c.get("abstract")   # the abstract Entity base is not a real kind of thing
     ]
     edges = [
         {

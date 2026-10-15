@@ -11,6 +11,7 @@ Pipeline:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from neo4j import GraphDatabase
@@ -42,10 +43,13 @@ Conversation so far:
 
 Follow-up question: {question}
 
-Rewrite the follow-up as a standalone question that can be understood without the conversation,
-replacing pronouns and references like "those products" or "that warehouse" with the specific
-entity names and ids from the conversation. Also list every entity name or id the standalone
-question refers to (e.g. "LP-4471", "WH-EAST", "Laptop Pro 14").
+Rewrite the follow-up as a short standalone question that can be understood without the
+conversation: replace references like "those products", "it" or "that warehouse" with the specific
+names and ids they point to. Keep the question as narrow as the follow-up — do not add conditions
+or other entities from the conversation that the follow-up does not refer to.
+Example: after an answer about the Laptop Pro 14 (LP-4471), "Which customers ordered those
+products?" becomes "Which customers ordered the Laptop Pro 14 (LP-4471)?"
+Also list only the entity names or ids that the standalone question refers to.
 Return JSON with keys "standalone_question" and "mentions".
 """
     try:
@@ -81,6 +85,49 @@ def _traverse(session, org_id: str, canonical_ids: list[str], limit: int = 80) -
         cids=canonical_ids,
         limit=limit,
     ).data()
+
+
+def _paths(session, org_id: str, canonical_ids: list[str], limit: int = 40) -> list[str]:
+    """Each path from a seed entity, up to MAX_HOPS, written as one line of readable facts —
+    e.g. "ORD-20240101 contains Laptop Pro 14 (LP-4471); Alice Nakamura (CUST-001) placed ORD-20240101".
+    Small models answer multi-hop questions reliably when the chain is already assembled."""
+    rows = session.run(
+        f"""
+        MATCH (e:Entity {{org_id: $org}}) WHERE e.canonical_id IN $cids
+        MATCH p = (e)-[rels*1..{MAX_HOPS}]-(:Entity {{org_id: $org}})
+        WHERE none(r IN rels WHERE type(r) = 'MENTIONED_IN')
+          AND all(i IN range(0, size(nodes(p)) - 2) WHERE NOT nodes(p)[i] IN nodes(p)[i + 1..])
+          // no sideways hops to a sibling through a shared node — two consecutive edges of the same
+          // type meeting the middle node from the same side: Laptop → SUP-001 ← Tablet, or
+          // ORD-20240101 ← Alice → ORD-20240201 (an unrelated order of the same customer)
+          AND none(i IN range(0, size(rels) - 2) WHERE type(rels[i]) = type(rels[i + 1])
+                   AND ((endNode(rels[i]) = nodes(p)[i + 1] AND endNode(rels[i + 1]) = nodes(p)[i + 1])
+                     OR (startNode(rels[i]) = nodes(p)[i + 1] AND startNode(rels[i + 1]) = nodes(p)[i + 1])))
+        RETURN [n IN nodes(p) | {{id: n.canonical_id, label: n.canonical_label}}] AS ns,
+               [r IN rels | {{type: type(r), start: startNode(r).canonical_id}}] AS rs,
+               size(rels) AS hops
+        ORDER BY hops DESC
+        LIMIT $fetch
+        """,
+        org=org_id, cids=canonical_ids, fetch=limit * 4,
+    ).data()
+    lines, covered = [], set()
+    for row in rows:
+        ns, rs = row["ns"], row["rs"]
+        steps = []
+        for i, r in enumerate(rs):
+            a, b = ns[i], ns[i + 1]
+            src, tgt = (a, b) if r["start"] == a["id"] else (b, a)
+            steps.append((src["id"], r["type"], tgt["id"],
+                          f"{_display(src['label'], src['id'])} {_phrase(r['type'])} {_display(tgt['label'], tgt['id'])}"))
+        key = frozenset(s[:3] for s in steps)
+        if key <= covered:
+            continue          # every fact on this path is already in a longer one
+        covered |= key
+        lines.append("; ".join(s[3] for s in steps))
+        if len(lines) >= limit:
+            break
+    return lines
 
 
 def _mentioning_chunks(session, org_id: str, canonical_ids: list[str], limit: int = 6) -> list[dict]:
@@ -129,6 +176,72 @@ def _data_map(session, org_id: str, max_lines: int = 40) -> str:
     return "\n".join(lines[:max_lines])
 
 
+def _business_id(canonical_id: str) -> str:
+    """product:LP-4471 → LP-4471"""
+    return canonical_id.split(":", 1)[-1] if canonical_id else ""
+
+
+def _display(label: str | None, canonical_id: str) -> str:
+    key = _business_id(canonical_id)
+    return f"{label} ({key})" if label and label != key else key
+
+
+def _phrase(rel_type: str) -> str:
+    """SUPPLIED_BY → supplied by"""
+    return (rel_type or "related to").replace("_", " ").lower()
+
+
+_CITATION_START = re.compile(r"\s*\[(?:graph|doc|source)s?\s*:", re.IGNORECASE)
+_TYPED_ID_IN_PARENS = re.compile(r"\s*\((?:[a-z]+):([A-Za-z0-9][A-Za-z0-9_\-]*)\)")
+_SOURCES_SECTION = re.compile(r"\s*\b(?:Sources?|References?|Citations?)\s*:", re.IGNORECASE)
+_LEAD_IN = re.compile(r"^\s*(?:here(?:'s| is) (?:the|my) answer|answer|based on [^.:]{0,100}?)\s*[:,]\s*", re.IGNORECASE)
+_TYPED_ID = re.compile(r"\b(?:product|customer|order|warehouse|supplier|shipment|maintenanceincident):([A-Za-z0-9][A-Za-z0-9_\-]*)")
+
+
+def _strip_citations(text: str) -> str:
+    """Remove [graph: …] / [doc: …] blocks, which can contain nested -[REL]-> brackets."""
+    out, i = [], 0
+    while i < len(text):
+        m = _CITATION_START.match(text, i)
+        if m:
+            depth, j = 0, m.start() + text[m.start():].index("[")
+            while j < len(text):
+                depth += {"[": 1, "]": -1}.get(text[j], 0)
+                j += 1
+                if depth == 0:
+                    break
+            i = j
+            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
+def plain_answer(text: str) -> str:
+    """Remove citation markup a model may still emit despite instructions: [graph: …] / [doc: …]
+    blocks and typed ids like product:LP-4471. A sentence whose subject was a citation
+    ("[doc: a.txt] and [doc: b.txt] support this.") is dropped rather than left as a fragment."""
+    kept = []
+    for sentence in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        stripped = _strip_citations(sentence).strip()
+        if stripped != sentence.strip() and (not stripped.strip(" .") or not stripped[0].isupper()):
+            continue   # a fragment whose subject was a citation, e.g. "and both support this answer."
+        kept.append(stripped)
+    text = " ".join(kept)
+    # the app lists sources under the answer, so a "Sources:" section in the text is dropped
+    m = _SOURCES_SECTION.search(text)
+    if m and m.start() > 0:
+        text = text[:m.start()]
+    text = _LEAD_IN.sub("", text, count=1)
+    text = text[:1].upper() + text[1:]
+    text = _TYPED_ID_IN_PARENS.sub(lambda m: f" ({m.group(1)})", text)
+    text = _TYPED_ID.sub(lambda m: m.group(1), text)
+    text = re.sub(r"\((\w[\w\-]*)\)\s*\(\1\)", r"(\1)", text)    # "(LP-4471) (LP-4471)"
+    text = re.sub(r"[ \t]+([.,;:])", r"\1", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
+
+
 def _sources_by_document(chunks: list[dict]) -> list[dict]:
     """One entry per document (several excerpts can come from the same file), best score kept."""
     best: dict[str, dict] = {}
@@ -162,8 +275,10 @@ def investigate(driver: GraphDatabase.driver, org_id: str, question: str,
     graph_chunks: list[dict] = []
     with driver.session() as session:
         data_map = _data_map(session, org_id)
+        paths: list[str] = []
         if seed_ids:
             edges = _traverse(session, org_id, seed_ids)
+            paths = _paths(session, org_id, seed_ids)
             graph_chunks = _mentioning_chunks(session, org_id, seed_ids)
 
     vector_chunks = vector_search(driver, org_id, standalone, top_k=6)
@@ -176,11 +291,10 @@ def investigate(driver: GraphDatabase.driver, org_id: str, question: str,
             seen.add(key)
             chunks.append(c)
 
-    graph_context = "\n".join(
-        f"{e['src_label']} ({e['src']}) -[{e['rel']}]-> {e['tgt_label']} ({e['tgt']})" for e in edges
-    )
+    # whole paths as readable phrases: the model echoes plain language and need not chain facts itself
+    graph_context = "\n".join(f"- {line}" for line in paths)
     entity_context = "\n".join(
-        f"- {e['label']} ({e['id']}) [{', '.join(e.get('classes') or [])}]" for e in entity_hits[:5]
+        f"- {_display(e['label'], e['id'])} — {', '.join(e.get('classes') or []) or 'entity'}" for e in entity_hits[:5]
     )
     doc_context = "\n---\n".join(
         f"[{c.get('document', 'unknown')}]\n{c.get('text', '')}" for c in chunks
@@ -203,20 +317,29 @@ Data map — which source tables and key columns hold each kind of entity:
 Entities matched in the question:
 {entity_context or '(none found)'}
 
-Graph relationships (up to {MAX_HOPS} hops from those entities):
+Facts from the company's records (authoritative). Each line is a chain of linked facts, up to
+{MAX_HOPS} steps from the entities above. Use these for who ordered, supplied, stocked or placed what:
 {graph_context or '(none found)'}
 
-Document excerpts:
+Report excerpts (narrative; they describe events and may mention people or orders in other contexts).
+If a report links someone or something to the item but the records above do not, answer from the
+records and then add one sentence about the difference, e.g. "A maintenance report also says Bob
+Okafor received one under order ORD-20240115, but the order records list that order as a Phone Max.":
 {doc_context or '(none found)'}
 
-Answer the question concisely and accurately based on the above context.
-If the context does not contain enough information, say so.
+Write the answer now: plain English, short, no brackets, no arrows, no typed ids (see the skill
+guidance). The app lists the sources under your answer, so do not cite them inline and do not add
+a "Sources" list. Start directly with the answer — no "Here is the answer" or "Based on…".
 """
-    answer = provider.generate_text(prompt).strip()
+    answer = plain_answer(provider.generate_text(prompt))
+    for asked in (question, standalone):   # small models sometimes repeat the question first
+        if asked and answer.lower().startswith(asked.strip().lower()):
+            answer = answer[len(asked.strip()):].strip()
 
     return {
         "answer": answer,
-        "standalone_question": standalone,
+        # only when a follow-up was actually rewritten, so the UI doesn't echo every question back
+        "standalone_question": standalone if standalone.strip() != question.strip() else None,
         "sources": _sources_by_document(chunks),
         "entities_used": [e["label"] or e["id"] for e in entity_hits[:5]],
         "relationships_used": len(edges),
